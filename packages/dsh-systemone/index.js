@@ -103,18 +103,11 @@ export const Config = Schema.object({
     .volatile()
     .description(
       'Decision-layer behavior: off does nothing, shadow computes and logs decisions, ' +
-        'enforce applies them, and swarm enforces them ONLY for sessions running a preset in ' +
-        '`swarm.presets` — every other preset stays completely inert (no model calls, no ' +
+        'enforce applies them, and swarm enforces them ONLY for sessions that entered the mode ' +
+        'with `swarm_enter` — every other session stays completely inert (no model calls, no ' +
         'restrictions, no denials). Decisions can only narrow behavior, never widen it.',
     ),
   swarm: Schema.object({
-    presets: Schema.array(Schema.string()).default([
-      'orchestrator',
-      'architect',
-      'writer',
-      'reviewer',
-      'researcher',
-    ]),
     orchestratorTools: Schema.array(Schema.string()).description(
       'Tools the orchestrator keeps while in swarm mode. Everything else is hidden from it: ' +
         'a swarm orchestrator never does stage work — it decomposes, assigns with swarm_assign, ' +
@@ -158,12 +151,10 @@ export const Config = Schema.object({
   loopDetection: Schema.object({
     enabled: Schema.boolean().default(true).volatile(),
     maxRepeats: Schema.number().default(2),
-    maxSubjects: Schema.number().default(64),
   }).description('Deterministic repeated-call guard; uses no model.'),
   skills: Schema.object({
     enabled: Schema.boolean().default(false).volatile(),
     injectHint: Schema.boolean().default(true),
-    routingHints: Schema.dict(Schema.string()).default({}),
   }).description('Optional one-skill-per-turn routing hint.'),
   modelRouting: Schema.object({
     enabled: Schema.boolean().default(false).volatile(),

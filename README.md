@@ -10,7 +10,7 @@ bundles with a `cordis.patch.yml`, plain ES modules, and Markdown.
 | Part | Package / location | What it gives you | Status |
 |---|---|---|---|
 | **Role personas** | [`packages/dsh-personas`](packages/dsh-personas) (`@local/dsh-personas` 1.0.0) | Five agent presets — orchestrator, architect, writer, reviewer, researcher — layered over the shipped DSH presets | Stable |
-| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.0) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** | Stable |
+| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.1) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** | Stable |
 | **Objective/progress orchestrator** | [`docs/orchestrator.md`](docs/orchestrator.md) + [`docs/design/`](docs/design/objective-progress-swarm-design.md) | A decision-complete design for a managed objective registry, event-driven wakeups, budgets, a verifier-gated completion gate, and a kill switch | **Design only — not implemented** |
 
 > The objective engine is a design document, not a shipped feature. No
@@ -89,8 +89,9 @@ verification, wakeups, and a human acknowledgment gate.
 
 The two shipped bundles are independent: personas work without System One, and
 System One works without the role presets. Installing both gives the per-preset
-behavior (`swarm.presets`, `presets.<id>.policy`, `presets.<id>.judge`) that the
-rest of the documentation assumes.
+decision-layer behavior (`presets.<id>.policy`, `presets.<id>.judge`, mode and
+threshold overrides) that the rest of the documentation assumes. Swarm
+membership itself is per session: a session opts in with `swarm_enter`.
 
 ---
 
@@ -153,7 +154,7 @@ a complete, credential-free profile patch.
 | DSH profile team packages | 0.2.2-rc.1 |
 | Bundled Node / pnpm shipped with DSH | Node 24.21.0 / pnpm 11.28.5 |
 | `@local/dsh-personas` | 1.0.0 — no runtime dependencies |
-| `@local/systemone` | 0.2.0 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; declares `@deepseek-ai/dsh-tools` 0.2.1-rc.3, `@deepseek-ai/schemastery` ~3.18.5; browser half at `lib/client.js` (`platform: web`) |
+| `@local/systemone` | 0.2.1 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; declares `@deepseek-ai/dsh-tools` 0.2.1-rc.3, `@deepseek-ai/schemastery` ~3.18.5; browser half at `lib/client.js` (`platform: web`) |
 
 DSH's plugin API is young. Treat the versions above as the tested set: if you
 run a different DSH release, install in `shadow` mode first and check

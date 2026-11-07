@@ -190,7 +190,7 @@ Each preset row declares:
   composition until they end.
 - Tooling that resolves presets (`ctx.get('agentPresets').presetForSession`)
   returns the stable `id`, which is what the decision layer records as `preset`
-  in its recent decisions and what `swarm.presets` matches.
+  in its recent decisions. Swarm membership is separate: it comes from `swarm_enter`, not from the preset id.
 
 ---
 
@@ -272,10 +272,10 @@ Append one `insert` row to the bundle's patch list. This is the minimum shape
 
 Then:
 
-1. Add `operator` to the systemone `swarm.presets` list if it should participate
-   in swarm mode.
-2. Add `presets.operator` to the systemone row if it needs a mode, taxonomy,
+1. Add `presets.operator` to the systemone row if it needs a mode, taxonomy,
    thresholds, deterministic policy, or model judge.
+2. Add an `operator` entry to `swarm.personas` if `swarm_assign` should be able
+   to route stages to this role.
 3. Reinstall the personas bundle and start a new session.
 
 ### Remove a preset
@@ -283,8 +283,8 @@ Then:
 Delete its `preset-<id>` entry and reinstall. The bundle uninstall path also
 removes all five; sessions already using one keep their composition until they
 end. If you remove a preset that the systemone row references, remove that
-`presets.<id>` override and the id from `swarm.presets` too, or leave them
-inert (they are only consulted for sessions whose preset resolves to that id).
+`presets.<id>` override too, or leave it inert (it is only consulted for
+sessions whose preset resolves to that id).
 
 ### Use personas without the custom bundle
 

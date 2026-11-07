@@ -84,8 +84,9 @@ The design adds, rather than rewrites:
   so the engine can ask the decision model for the advisory classification
   without duplicating the HTTP client or touching the layer's state;
 - config changes only: the objective tools and team tools are added to
-  `swarm.orchestratorTools`, `objective-manager` to `swarm.presets`, and the two
-  personas to `swarm.personas`.
+  `swarm.orchestratorTools`, and the two personas to `swarm.personas`. The
+  manager session enters swarm mode with `swarm_enter`; there is no preset
+  membership list.
 
 `swarm_assign` keeps its exact current meaning. It is not a message classifier
 and not a completion judge: the classifier question is a separate
@@ -232,7 +233,7 @@ Phase 1 is specified file-by-file and row-by-row in the design (§8):
 | `lib/verify.js`, `lib/classify.js`, `lib/prompts.js`, `lib/status.js` | Commit pinning + verdict validation, advisory classification, versioned prompts, status payload |
 | `preset-objective-manager`, `preset-verifier` rows in `dsh-personas` | Capability envelopes for the manager and verifier sessions |
 | `ctx.provide('systemone', …)` in `packages/dsh-systemone` | The decision-plane seam |
-| Profile rows for `objective-engine` + additions to `swarm.personas` / `swarm.orchestratorTools` / `swarm.presets` | Deployment wiring |
+| Profile rows for `objective-engine` + additions to `swarm.personas` / `swarm.orchestratorTools` | Deployment wiring |
 | Tests (`test/`, a nine-condition suite, fake ctx) | Prove the gate, duplicate replay, restart, outage, and bypass rejection |
 
 If you are implementing it, read the design's Appendix B first: it separates

@@ -4,6 +4,7 @@
 **Scope:** Turn the user's idea — an orchestrator that tracks **objective** messages against **progress** messages, uses the self-hosted Mammoth/System One decision model to tell them apart, and runs indefinitely by dropping progress prompts and closing objectives when satisfied — into a real agent type inside *this* profile's swarm mode.
 **Where it runs:** `DSH_PROFILE=<profile>`, profile dir `~/.dsh/profiles/<profile>`, bundles listed in that profile's `package.json` (`@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, `@deepseek-ai/dsh-experimental-agent-team-profile`, `@local/dsh-personas`, `@local/systemone`), local bundles in this repository under `packages/`.
 > **Sanitized copy.** Internal hostnames, absolute paths, and deployment-specific model ids were replaced with generic placeholders. The design itself is unchanged. The objective engine it describes is a design only and is not implemented in this repository.
+> **Superseded detail:** the design's C4 refers to adding `objective-manager` to `swarm.presets`. That field was removed from `@local/systemone` in 0.2.1; swarm membership is `swarm_enter` only, so no preset list is needed.
 
 **Evidence basis:** every named primitive below was read from the installed code or the docs shipped in `/Applications/DeepSeek Harness.app/Contents/Resources/app.asar` (DSH 0.2.2-rc.1, profile team packages 0.2.2-rc.1). Appendix A lists what was verified where; Appendix B flags every proposal that is not yet shipped behavior.
 

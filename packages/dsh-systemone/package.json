@@ -1,6 +1,6 @@
 {
   "name": "@local/systemone",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "System One tools, decision layer, and Settings page for DeepSeek Harness: typed asks, image assets, five hook-driven decisions, swarm mode, and live endpoint/credential configuration.",
@@ -17,9 +17,6 @@
     "./client": "./lib/client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
-  },
-  "scripts": {
-    "test": "node test/run.mjs"
   },
   "files": [
     "index.js",
@@ -42,5 +39,8 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "scripts": {
+    "test": "node test/run.mjs"
   }
 }

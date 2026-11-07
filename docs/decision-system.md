@@ -1,7 +1,7 @@
 # The System One decision layer
 
 `@local/systemone` (bundle directory
-[`packages/dsh-systemone`](../packages/dsh-systemone), version 0.2.0) integrates
+[`packages/dsh-systemone`](../packages/dsh-systemone), version 0.2.1) integrates
 DSH with a **self-hosted decision model**. It gives the agent two surfaces over
 one HTTP endpoint — model-invoked tools, and a decision layer that consults the
 endpoint on the harness's extension points — plus swarm mode, which is the
@@ -467,8 +467,7 @@ arguments (with `redactKeys` redacted). On the next call with the same identity:
   the model to change the arguments or the approach.
 
 The counter resets on `agent/disposed` and whenever a user-role message enters
-the step (a human intervention is a fresh start). `maxSubjects` is declared in
-the schema but is not enforced in 0.1.0.
+the step (a human intervention is a fresh start).
 
 ---
 
@@ -479,7 +478,7 @@ off unless you are testing the specific path.
 
 | Feature | Config | What it does | Caveat |
 |---|---|---|---|
-| Skill hints | `skills.enabled` (default false), `skills.injectHint` (true), `skills.routingHints` | Asks a `choice` question over up to 20 model-invocable skills; in `enforce`, injects one user-role notice suggesting the chosen skill | Depends on `agent.inject()` accepting a plugin-sourced notice; unverified end to end in 0.2.2, so it is opt-in and failure-tolerant. `routingHints` is declared but not read by 0.1.0 |
+| Skill hints | `skills.enabled` (default false), `skills.injectHint` (true) | Asks a `choice` question over up to 20 model-invocable skills; in `enforce`, injects one user-role notice suggesting the chosen skill | Depends on `agent.inject()` accepting a plugin-sourced notice; unverified end to end in 0.2.2, so it is opt-in and failure-tolerant. |
 | Model routing | `modelRouting.enabled` (default false), `modelRouting.routes` | Asks a `choice` question over configured routes; validates the target in the live provider catalog; calls `agent.model.select()` | A step's model is captured before it runs, so routing applies to the **next** step. Unverified end to end; keep off until you observe it working |
 
 ---
@@ -636,13 +635,10 @@ recorded with the detected `preset` and visible in `systemone_status`.
 
 ### Swarm mode caveats (read these)
 
-- **`swarm.presets` is declared but not read in 0.1.0.** The config description
-  says swarm mode enforces only for presets listed in `swarm.presets`, but the
-  runtime gates on swarm-session membership alone: with `mode: swarm`, **any**
-  session that calls `swarm_enter` is enforced, regardless of preset. Treat
-  `swarm.presets` as documentation metadata until the runtime reads it. The
-  design in `docs/design/` assumes the resolved semantic and adds
-  `objective-manager` to the list.
+- **Swarm membership is session-scoped.** With `mode: swarm`, only sessions
+  that call `swarm_enter` are enforced; every other session stays inert,
+  regardless of preset. The retired `swarm.presets` field was removed in 0.2.1 —
+  a stale profile patch that still sets it is ignored.
 - **Membership is process-local.** It is a `Set` in the plugin runtime and does
   not survive a restart. Re-enter swarm mode after reloading DSH.
 - **Entering is explicit.** There is no automatic trigger; the model must call
@@ -657,7 +653,7 @@ recorded with the detected `preset` and visible in `systemone_status`.
 
 ## Settings screen and configuration
 
-`@local/systemone` 0.2.0 ships a browser-side Settings section:
+`@local/systemone` 0.2.1 ships a browser-side Settings section:
 **Settings → Decision model**. It edits the live settings an operator needs day
 to day, so you do not have to hand-edit YAML for them. The page is the browser
 half of the same package (`lib/client.js`, declared by `dsh.client` in
@@ -893,8 +889,6 @@ only when the decisions look right.
 
 | Limitation | Detail |
 |---|---|
-| `swarm.presets` is not read | Declared in the Config schema and described as the swarm membership list, but 0.1.0 gates on `swarm_enter` membership only |
-| `budgetMs`, `maxSubjects`, `skills.routingHints` | Declared in the schema, not enforced/read by the runtime in 0.1.0 |
 | Skill hints unverified end to end | `agent.inject()` with a plugin-sourced notice is opt-in and failure-tolerant |
 | Model routing applies to the next step | A step's model is captured before it runs; routing is unverified end to end |
 | Vision unavailable on the reference deployment | Multipart assets; endpoint is JSON-only |

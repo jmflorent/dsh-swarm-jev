@@ -80,8 +80,7 @@ The row:
 `apiKeyRef`, `maxStateChars`, `maxArgumentChars`, `maxCategories`,
 `maxSelectedTools`, `logDecisions`, and `redactKeys` are consumed by the decision
 runtime but are not declared in the generated `Config` schema (Schemastery
-passes unknown keys through). `budgetMs` is present in the runtime defaults but
-unused.
+passes unknown keys through).
 
 ### 2.2 `mode`
 
@@ -149,7 +148,6 @@ selection:
 |---|---|---|---|
 | `enabled` | `true` | yes | Observe `tools/result` and install the guard. |
 | `maxRepeats` | `2` | no | Identical calls at or above this count are denied in `enforce`. |
-| `maxSubjects` | `64` | no | Declared in the schema; **not enforced in 0.2.0**. |
 
 ### 2.6 `skills` and `modelRouting` (opt-in)
 
@@ -157,7 +155,6 @@ selection:
 |---|---|---|---|
 | `skills.enabled` | `false` | yes | Ask for a skill hint on each step. |
 | `skills.injectHint` | `true` | no | In `enforce`, inject the chosen skill as a notice. |
-| `skills.routingHints` | `{}` | no | Declared in the schema; **not read by 0.2.0**. |
 | `modelRouting.enabled` | `false` | yes | Ask for a model route on each step. |
 | `modelRouting.routes` | `{}` | no | Route name → `{ provider, model }`; the target must exist in the live provider catalog. Applies to the next step. |
 
@@ -176,9 +173,13 @@ selection:
 
 | Field | Default | Meaning |
 |---|---|---|
-| `presets` | `[orchestrator, architect, writer, reviewer, researcher]` | Declared as the swarm membership list. **Not read by 0.2.0** — with `mode: swarm`, runtime gating uses `swarm_enter` membership only. Treat as documentation metadata. |
 | `orchestratorTools` | 16 coordination tools (see below) | Tools the orchestrator keeps while in swarm mode; everything else is hidden from it. |
 | `personas` | five role personas | Persona catalog for `swarm_assign`: id → `{ description, instructions }`. An empty map falls back to the built-in catalog. |
+
+Swarm membership is a per-session mode: `mode: swarm` affects only sessions
+that entered with `swarm_enter`. There is no preset list; the retired
+`swarm.presets` field was removed in 0.2.1 and is ignored if an old patch sets
+it.
 
 Default `orchestratorTools`:
 
@@ -192,7 +193,6 @@ Customizing the catalog:
 
 ```yaml
 swarm:
-  presets: [orchestrator, architect, writer, reviewer, researcher, operator]
   orchestratorTools:
     - read
     - read_image
@@ -372,7 +372,7 @@ you want specialized children without swarm mode.
   keep the `preset-<id>` row id, reinstall the bundle, start a **new** session.
 - **Display change:** edit `name`/`description`/`order` only.
 - **Rename:** changing `config.id` changes the id the systemone per-preset
-  overrides and `swarm.presets` must use. Update both.
+  overrides must use. Update them.
 - **Add/remove:** append or delete a whole `preset-<id>` row. Removing from the
   bundle removes it from the picker; sessions already using it keep their
   composition until they end.

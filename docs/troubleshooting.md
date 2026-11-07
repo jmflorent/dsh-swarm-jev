@@ -124,7 +124,7 @@ Swarm mode is inert by design until a **session enters it**.
 | `swarm_assign` returns `no persona candidates configured` | `swarm.personas` is empty (an empty map falls back to the built-in catalog, but the top-level row may be malformed) | Configure `swarm.personas` |
 | `swarm_assign` returns `the decision model returned no readable persona` | The model answered a label outside `criteria` | Check the model/endpoint; keep persona ids simple and their descriptions distinct |
 | Swarm state vanished after reload | Membership is an in-memory `Set`; it is not durable | Re-enter swarm mode |
-| A preset in `swarm.presets` is not enforced | **Known 0.2.0 behavior:** `swarm.presets` is declared but the runtime gates on `swarm_enter` membership only | Treat the list as metadata; use `swarm_enter` explicitly |
+| Swarm mode has no effect in a session | Swarm enforcement is opt-in per session; there is no preset list | Call `swarm_enter` in that session explicitly (membership is process-local and resets on restart) |
 | Enforcing a swarm session denies everything | `mode: swarm` + assessment/judge/`policy` + no approvals = every `ask` becomes a denial | Keep approvals enabled; start in `shadow`; inspect `layer.recent` |
 
 Verify with `systemone_status().layer.swarm` (`active`, `personas`,

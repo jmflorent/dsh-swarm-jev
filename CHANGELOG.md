@@ -28,6 +28,15 @@ DeepSeek Harness release it runs on. See
   `tool-todo.allowParallelInProgress`. Both are now supplied per preset, so all
   nine presets (four shipped plus five custom) load cleanly.
 
+### Removed
+
+- `packages/dsh-systemone` — removed configuration fields the runtime never
+  read: `swarm.presets` (swarm membership is `swarm_enter` only), `budgetMs`,
+  `loopDetection.maxSubjects`, and `skills.routingHints`. Swarm enforcement is
+  session-scoped, so no preset list is needed. Schemastery passes unknown
+  profile-patch keys through, so a stale patch that still sets these fields is
+  ignored rather than rejected. Package version: `0.2.1`.
+
 ## [0.1.0] — 2026-11-07
 
 ### Added

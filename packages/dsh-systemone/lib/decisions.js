@@ -105,7 +105,6 @@ export const resolveSettings = (config) => {
     apiKeyRef: 'SYSTEMONE_API_KEY',
     mode: 'shadow',
     timeoutMs: 5000,
-    budgetMs: 8000,
     maxStateChars: 4000,
     maxArgumentChars: 1200,
     maxCategories: 48,
@@ -122,12 +121,11 @@ export const resolveSettings = (config) => {
     },
     selection: { enabled: true, alwaysAllow: [], categories: {}, toolCategories: {} },
     assessment: { enabled: true, onFailure: 'ask', includeRiskScore: false, restrictions: [] },
-    loopDetection: { enabled: true, maxRepeats: 2, maxSubjects: 64 },
-    skills: { enabled: false, injectHint: true, routingHints: {} },
+    loopDetection: { enabled: true, maxRepeats: 2 },
+    skills: { enabled: false, injectHint: true },
     modelRouting: { enabled: false, routes: {} },
     policy: { default: 'allow', allow: [], deny: [], tools: {} },
     swarm: {
-      presets: ['orchestrator', 'architect', 'writer', 'reviewer', 'researcher'],
       // The orchestrator never does stage work: only coordination and
       // context-reading tools stay visible while a session is in swarm mode.
       orchestratorTools: [
@@ -1089,7 +1087,6 @@ const SWARM_POLICY = [
           endpoint: settings.endpoint,
           model: settings.model,
           timeoutMs: settings.timeoutMs,
-          presets: [...(settings.swarm?.presets ?? [])],
         },
         swarm: {
           active: swarmSessions.size,
