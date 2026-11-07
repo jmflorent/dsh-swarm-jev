@@ -174,6 +174,29 @@ saved.
 
 ---
 
+## Custom presets show "failed to load"
+
+The roster's diagnostic names the unusable row. Opening a failed preset's
+configuration shows the exact failure, for example:
+
+```text
+tool-fs-search (@deepseek-ai/dsh-tool-fs-search): invalid config:
+  - $.sampleOverCapGlobResults missing required value
+```
+
+A preset fails as a whole when one of its mounted rows rejects its config. In
+DSH 0.2.2-rc.1 two plugin configs are required, and older persona bundles
+omitted them:
+
+| Row | Required field | Value used here |
+|---|---|---|
+| `@deepseek-ai/dsh-tool-fs-search` | `sampleOverCapGlobResults` | `false` (same as the shipped Standard preset) |
+| `@deepseek-ai/dsh-tool-todo` | `allowParallelInProgress` | `true` for orchestrator/researcher, `false` for the other roles |
+
+Fix in `packages/dsh-personas/cordis.patch.yml`, then disable and re-enable the
+bundle on the Plugins page and confirm the roster has no failed presets. This
+repository's bundle already carries the fields.
+
 ## Version mismatch or loader errors
 
 | Symptom | Cause | Fix |

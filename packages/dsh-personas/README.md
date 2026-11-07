@@ -26,6 +26,11 @@ runtime context), plus `time-context`, and an isolated compaction group.
 - `reviewer` is read-only by design: `write: false`, `edit: false`, `applyPatch: false`.
 - Removing the bundle on the sidebar **Plugins** page removes all five presets again
   (sessions already using one keep their composition).
+- Rows mounted by a preset must satisfy their plugin's **required** config: one
+  rejected row fails the whole preset ("failed to load" in Settings). Required in
+  DSH 0.2.2-rc.1 are `tool-fs-search.sampleOverCapGlobResults` and
+  `tool-todo.allowParallelInProgress`; both are set here. Re-check these rows
+  when upgrading DSH, against the shipped presets' configs.
 
 ## Edit
 

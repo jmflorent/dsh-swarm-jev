@@ -20,6 +20,14 @@ DeepSeek Harness release it runs on. See
   authenticated `GET /systemone/panel.json` snapshot route, which reports
   decision metadata only and refuses unauthenticated or cross-origin requests.
 
+### Fixed
+
+- `packages/dsh-personas` — the five custom presets failed to load on DSH
+  0.2.2-rc.1 because two mounted plugins require configuration the bundle did
+  not set: `tool-fs-search.sampleOverCapGlobResults` and
+  `tool-todo.allowParallelInProgress`. Both are now supplied per preset, so all
+  nine presets (four shipped plus five custom) load cleanly.
+
 ## [0.1.0] — 2026-11-07
 
 ### Added
