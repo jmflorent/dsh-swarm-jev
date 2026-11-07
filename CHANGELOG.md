@@ -20,6 +20,25 @@ DeepSeek Harness release it runs on. See
   authenticated `GET /systemone/panel.json` snapshot route, which reports
   decision metadata only and refuses unauthenticated or cross-origin requests.
 
+- `packages/objective-engine` — `@local/objective-engine` 0.1.0, a working MVP
+  objective/progress control plane: durable journal, objectives with criteria
+  and round budgets, work orders and status reports, an independent verification
+  gate, admission limits with a durable queue, advisory Mammoth classification
+  (explicit and automatic), an event-driven progress-prompt driver, and a
+  paused-by-default kill switch. Includes the package selftest suite.
+- `packages/dsh-systemone` — the right-sidebar Swarm panel gains an
+  **Objectives** block (paused state, admission counts, objectives with round
+  budgets) when the objective engine is composed; the decision-plane seam
+  (`ctx.provide('systemone')`) lets the engine ask Mammoth without duplicating
+  the client.
+- `docs/objective-engine.md` — the MVP reference.
+
+### Changed
+
+- `packages/dsh-systemone` — version 0.2.2: the swarm orchestrator allow-list
+  now includes the `objective_*` tools and filters unresolvable optional tool
+  names before applying the restriction.
+
 ### Fixed
 
 - `packages/dsh-personas` — the five custom presets failed to load on DSH

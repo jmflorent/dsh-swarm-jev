@@ -1,0 +1,9 @@
+# objective-engine bundle layer.
+#
+# One host row. Deployment values (limits, data dir, classification) belong in
+# the profile patch override for row id `objective-engine`; the engine reads the
+# row config directly and every field has a default.
+- insert:
+    - id: objective-engine
+      name: '@local/objective-engine'
+      config: {}

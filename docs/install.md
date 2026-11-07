@@ -1,9 +1,9 @@
 # Installing on another DSH installation
 
-This guide installs both bundles on a DeepSeek Harness installation that is not
-the author's. The target release is **DSH 0.2.2-rc.1** — the version both
-bundles were built and tested against — using the Node/pnpm runtimes shipped
-with DSH.
+This guide installs the three bundles on a DeepSeek Harness installation that
+is not the author's. The target release is **DSH 0.2.2-rc.1** — the version all
+three bundles were built and tested against — using the Node/pnpm runtimes
+shipped with DSH.
 
 - The bundles are ordinary DSH plugin packages; nothing is compiled and there is
   no build step.
@@ -92,9 +92,12 @@ the bundle list together.
 3. Choose **Add plugin → local directory** and select
    `<repo>/packages/dsh-personas`.
 4. Repeat for `<repo>/packages/dsh-systemone`.
-5. Confirm the bundle list order shows `@local/dsh-personas` before
-   `@local/systemone`. If the UI lets you reorder, do; otherwise use Path B or C
-   to fix the order in the profile `package.json`.
+5. Repeat for `<repo>/packages/objective-engine` (no runtime dependencies, so
+   this install resolves nothing from the registry).
+6. Confirm the bundle list order shows `@local/dsh-personas` before
+   `@local/systemone` and `@local/objective-engine` last. If the UI lets you
+   reorder, do; otherwise use Path B or C to fix the order in the profile
+   `package.json`.
 6. Reload or restart DSH when the plugin manager asks for it. Structural changes
    (a newly inserted row) are applied at load; client UI additions need a full
    reload.
@@ -243,7 +246,10 @@ they started with.
 | Settings → Agent presets | Same five, after the shipped presets |
 | Settings → Decision model | Endpoint, model, timeout, mode, API key fields (after the systemone bundle loads and the Web client is running) |
 | `systemone_status({ probe: true })` in a session | `{ ok: true, probe: { ok: true, answers: { probe: { noul } } } }`, `auth` reflects the key, `layer.mode` matches configuration |
-| Plugins (sidebar) | Both bundles listed and enabled |
+| `objective_status` in a session | `{ ok: true }` with `engine.paused: true` (the engine boots paused), limits, and zero counters |
+| `objective_system` `{ action: "resume" }` then `pause` | `ok: true` for both; resume reports `paused: false`, pause reports `paused: true` |
+| Right sidebar → Swarm panel | An **Objectives** block appears when the engine is composed (paused state, counts, objectives) |
+| Plugins (sidebar) | All three bundles listed and enabled |
 
 If a row is missing, check bundle order and the profile path; if the tools are
 missing, check `layer.mode` and whether the bundle loaded (Troubleshooting).
@@ -254,6 +260,10 @@ missing, check `layer.mode` and whether the bundle loaded (Troubleshooting).
 
 - **The personas bundle** has no dependencies. It is pure YAML plus a
   `package.json`.
+- **The objective engine bundle** has no runtime dependencies either: Node 24
+  built-ins and the harness tool registry only. It also needs no Web client; the
+  Objectives block in the Swarm panel appears only when the systemone bundle is
+  composed.
 - **The systemone bundle** imports two packages at runtime:
   `@deepseek-ai/dsh-tools` (tool definitions) and `@deepseek-ai/schemastery`
   (Config schema). Installing it through the plugin manager or

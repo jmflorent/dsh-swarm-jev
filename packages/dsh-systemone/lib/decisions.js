@@ -145,6 +145,15 @@ export const resolveSettings = (config) => {
         'swarm_exit',
         'systemone_ask',
         'systemone_status',
+        'objective_create',
+        'objective_status',
+        'objective_plan',
+        'objective_report',
+        'objective_verify',
+        'objective_complete',
+        'objective_cancel',
+        'objective_classify',
+        'objective_system',
       ],
       personas: {
         orchestrator: {
@@ -953,7 +962,21 @@ const SWARM_POLICY = [
     try {
       const restrict = agent?.ctx?.tools?.restrict
       if (typeof restrict !== 'function') return
-      const allow = [...new Set(settings.swarm?.orchestratorTools ?? [])]
+      const requested = [...new Set(settings.swarm?.orchestratorTools ?? [])]
+      // A deployment may not compose every optional tool (for example the
+      // objective engine). Naming an absent tool rejects the whole filter, so
+      // keep only names the registry can resolve in this agent's scope or on
+      // the global layer; when nothing resolves, fail open to the full list.
+      const resolvable = requested.filter((name) => {
+        try {
+          if (typeof ctx.tools?.get !== 'function') return true
+          if (ctx.tools.get(name, agent) !== undefined) return true
+          return ctx.tools.get(name) !== undefined
+        } catch {
+          return true
+        }
+      })
+      const allow = resolvable.length === 0 ? requested : resolvable
       try {
         swarmRestrictions.set(agent, restrict({ allow }))
       } catch (error) {
@@ -1093,6 +1116,14 @@ const SWARM_POLICY = [
           members,
           personas,
         },
+        ...(() => {
+          try {
+            const objectives = ctx.get?.('objectives')?.snapshot?.()
+            return objectives === undefined ? {} : { objectives }
+          } catch {
+            return {}
+          }
+        })(),
         stats: JSON.parse(JSON.stringify(stats)),
         recent: JSON.parse(JSON.stringify(recent)),
       }
@@ -1118,6 +1149,16 @@ const SWARM_POLICY = [
           .filter(([, override]) => typeof override?.judge?.instructions === 'string' && override.judge.instructions.trim() !== '')
           .map(([id]) => id),
       },
+      // The objective engine (when composed) publishes a read-only snapshot for
+      // the same panel: objectives, budgets, and admission state.
+      ...(() => {
+        try {
+          const objectives = ctx.get?.('objectives')?.snapshot?.()
+          return objectives === undefined ? {} : { objectives }
+        } catch {
+          return {}
+        }
+      })(),
       features: {
         selection: settings.selection.enabled,
         assessment: settings.assessment.enabled,

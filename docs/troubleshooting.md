@@ -132,6 +132,27 @@ Verify with `systemone_status().layer.swarm` (`active`, `personas`,
 
 ---
 
+## Objective engine prompts do not fire
+
+The objective engine is a second bundle and its driver is intentionally opt-in.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `objective_status` reports `engine.paused: true` | The engine boots paused | Call `objective_system { action: "resume" }` in the session that should run the loop |
+| Resumed, but no prompt arrives | No active objective (all queued/blocked/completed) or the owner session is not live in this process | Create/plan an objective; open the owner session; wait for its next idle edge |
+| Prompts stopped for one objective | Its round budget is exhausted; state is `blocked` with `blockedReason: "budget-exhausted"` | Create the objective with a larger `budgetRounds`, or complete/cancel it and create the next objective |
+| Nothing fires even after a child settles | The session is not the objective owner, or the engine is paused | Check the objective's `owner.sessionId`; resume the engine |
+| `objective_complete` returns `verification-required` | No `pass` verdict recorded | A different session must call `objective_verify` first |
+| `objective_verify` returns `self-verification` | The owner tried to verify its own objective | Spawn a reviewer/worker in another session and verify from there |
+| `objective_create` returns `admission-full` | Active + queued caps are full | Complete/cancel an objective, or raise `maxActiveObjectives` / `maxQueuedObjectives` |
+| No Objectives block in the Swarm panel | The objective-engine bundle is not installed/enabled, or the engine row failed to load | Check the sidebar Plugins page; `objective_status` tells you whether the tools exist |
+| Journal cannot be read at startup | A torn line from a crash is truncated automatically; a corrupt non-tail event is left in place and the load stops | Back up `journal.jsonl`, inspect the reported line; the engine never guesses at damaged state |
+
+The journal lives at `$DSH_HOME/storages/objective-engine/journal.jsonl`. The
+engine logs `[objective-engine] ready · journal=… · paused=…` when it loads.
+
+---
+
 ## The Settings page is not visible
 
 **Settings → Decision model** is the browser half of the systemone package. It

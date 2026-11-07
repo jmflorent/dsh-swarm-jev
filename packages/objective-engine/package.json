@@ -1,0 +1,29 @@
+{
+  "name": "@local/objective-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Durable objective/progress orchestrator driver for DeepSeek Harness: objectives with criteria and budgets, progress work orders and reports, an independent verification gate, admission limits, and progress prompts delivered over time.",
+  "engines": {
+    "node": ">=24",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "lib/**/*.js",
+    "cordis.patch.yml",
+    "test/**/*.mjs",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/run.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

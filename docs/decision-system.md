@@ -761,6 +761,18 @@ It shows, live:
 The panel polls every 3 s, pauses while the tab is hidden, refreshes on
 visibility, and offers a manual refresh button.
 
+When the [`@local/objective-engine`](../packages/objective-engine) bundle is
+also composed, the scan adds an **Objectives** block: the engine's paused/running
+state, its admission counts (active / queued / blocked / completed), and each
+open objective with its round budget. That data comes from the read-only
+`objectives` service the engine provides (`snapshot()`), projected by the same
+panel endpoint.
+
+The reverse seam is how the engine reaches Mammoth: the systemone host half
+provides a read-only `systemone` service (`decide`, `status`) for other host
+plugins. The engine's advisory classifier uses it; no other plugin can mutate
+the decision layer through it.
+
 ### Data path and access
 
 `GET /systemone/panel.json` is registered only where the Web host

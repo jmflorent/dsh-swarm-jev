@@ -88,6 +88,10 @@ window.__ModuleLoader__.load({
 			panelMode: "mode",
 			panelEndpoint: "endpoint",
 			panelModel: "model",
+			panelObjectives: "Objectives",
+			panelNoObjectives: "No objectives tracked.",
+			panelObjRunning: "engine running",
+			panelObjPaused: "engine paused",
 		};
 
 		const zh = {
@@ -151,6 +155,10 @@ window.__ModuleLoader__.load({
 			panelMode: "模式",
 			panelEndpoint: "地址",
 			panelModel: "模型",
+			panelObjectives: "目标",
+			panelNoObjectives: "暂无目标。",
+			panelObjRunning: "引擎运行中",
+			panelObjPaused: "引擎已暂停",
 		};
 
 		const styles = {
@@ -437,6 +445,9 @@ window.__ModuleLoader__.load({
 			const recent = Array.isArray(data?.recent) ? data.recent : [];
 			const engine = data?.engine !== null && typeof data?.engine === "object" ? data.engine : {};
 			const stats = data?.stats !== null && typeof data?.stats === "object" ? data.stats : {};
+			const objectives = data?.objectives;
+			const objectiveCounts = objectives?.counts ?? {};
+			const objectiveRows = Array.isArray(objectives?.objectives) ? objectives.objectives : [];
 			const assignments = new Map();
 			for (const entry of recent) {
 				if (entry?.decision === "assign" && typeof entry.persona === "string") {
@@ -500,6 +511,46 @@ window.__ModuleLoader__.load({
 						),
 					),
 				),
+				objectives !== undefined
+					? h(
+							React.Fragment,
+							null,
+							sectionTitle(t("panelObjectives")),
+							h(
+								"div",
+								{ style: { ...panelStyles.card, gap: "6px" } },
+								h(
+									"div",
+									{ style: { display: "flex", flexWrap: "wrap", gap: "6px" } },
+									h("span", { style: panelStyles.chip }, t(objectives.paused ? "panelObjPaused" : "panelObjRunning")),
+									h("span", { style: panelStyles.chip }, `active ${objectiveCounts.active ?? 0}`),
+									h("span", { style: panelStyles.chip }, `queued ${objectiveCounts.queued ?? 0}`),
+									h("span", { style: panelStyles.chip }, `blocked ${objectiveCounts.blocked ?? 0}`),
+									h("span", { style: panelStyles.chip }, `completed ${objectiveCounts.completed ?? 0}`),
+								),
+								objectiveRows.length === 0
+									? h("p", { style: panelStyles.hint }, t("panelNoObjectives"))
+									: objectiveRows.map((objective) =>
+											h(
+												"div",
+												{ key: objective.id, style: panelStyles.row },
+												h(
+													"span",
+													{
+														style: {
+															...panelStyles.badge,
+															color: toneColor(objective.state === "active" ? "accent" : objective.state === "blocked" ? "bad" : "neutral"),
+														},
+													},
+													objective.state,
+												),
+												h("span", { style: panelStyles.text, title: objective.statement }, objective.statement),
+												h("span", { style: panelStyles.meta }, `${objective.rounds}/${objective.maxRounds}`),
+											),
+										),
+							),
+						)
+					: null,
 				sectionTitle(t("panelOperations")),
 				recent.length === 0
 					? h("p", { style: panelStyles.hint }, t("panelNoOps"))

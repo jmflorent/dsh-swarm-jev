@@ -28,8 +28,9 @@ Rules that matter:
 - **The Settings screen writes the profile patch.** A UI save becomes an
   ordinary row override, so it participates in the same precedence and survives
   restarts.
-- **Row ids are handles.** The shipped ids are `systemone`, `preset-orchestrator`,
-  `preset-architect`, `preset-writer`, `preset-reviewer`, `preset-researcher`.
+- **Row ids are handles.** The shipped ids are `systemone`, `objective-engine`,
+  `preset-orchestrator`, `preset-architect`, `preset-writer`, `preset-reviewer`,
+  `preset-researcher`.
   The profile overrides the `systemone` row by id; preset rows are declared by
   the personas bundle (edit the bundle, not the profile, to change a preset).
 - **Volatile fields are live.** Fields marked `.volatile()` below are delivered
@@ -504,3 +505,47 @@ Reload requirements:
 | Non-volatile field in profile patch | Reload the app (or restart) |
 | Preset rows / bundle list / install/remove | Reload or restart |
 | `apiKeyRef` change | Next decision (volatile); the Settings page follows the updated config snapshot |
+
+---
+
+## 7. `@local/objective-engine` configuration
+
+The row:
+
+```yaml
+- id: objective-engine
+  name: '@local/objective-engine'
+  config:
+    maxActiveObjectives: 3
+    maxRoundsPerObjective: 12
+```
+
+Every field is optional; the engine runs on defaults without a profile row.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | When false the driver and tools refuse work; the registry still loads. |
+| `dataDir` | `$DSH_HOME/storages/objective-engine` | Directory holding `journal.jsonl`. |
+| `maxActiveObjectives` | `3` | Objectives in `active` state; more are queued. |
+| `maxQueuedObjectives` | `16` | Durable queue depth; beyond both caps creation is rejected `admission-full`. |
+| `maxRoundsPerObjective` | `12` | Progress prompts per objective before it blocks `budget-exhausted`. |
+| `progressIntervalMs` | `45000` | Timer cadence for a progress prompt after an idle gap. |
+| `minWakeGapMs` | `8000` | Minimum gap between prompts to one session. |
+| `tickMs` | `20000` | Driver timer resolution. |
+| `classification.enabled` | `true` | Auto-tag incoming user messages in owner sessions. |
+
+Tools: `objective_create`, `objective_status`, `objective_plan`,
+`objective_report`, `objective_verify`, `objective_complete`,
+`objective_cancel`, `objective_classify`, `objective_system`.
+
+Notes:
+
+- **The engine boots paused.** `objective_system { action: "resume" }` arms the
+  driver; `pause` stops it. There is no configuration field that overrides the
+  paused boot state, by design.
+- The journal is append-only JSONL, fsynced per event and torn-tail repaired on
+  load. Back it up before destructive maintenance; the engine never deletes it.
+- The row needs no Web client. When the systemone browser half is composed, its
+  Swarm panel renders the engine snapshot as an **Objectives** block.
+- Applying a config change reloads the row; journal state is preserved across
+  reloads and the engine returns paused.

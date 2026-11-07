@@ -10,13 +10,14 @@ bundles with a `cordis.patch.yml`, plain ES modules, and Markdown.
 | Part | Package / location | What it gives you | Status |
 |---|---|---|---|
 | **Role personas** | [`packages/dsh-personas`](packages/dsh-personas) (`@local/dsh-personas` 1.0.0) | Five agent presets — orchestrator, architect, writer, reviewer, researcher — layered over the shipped DSH presets | Stable |
-| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.1) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** | Stable |
-| **Objective/progress orchestrator** | [`docs/orchestrator.md`](docs/orchestrator.md) + [`docs/design/`](docs/design/objective-progress-swarm-design.md) | A decision-complete design for a managed objective registry, event-driven wakeups, budgets, a verifier-gated completion gate, and a kill switch | **Design only — not implemented** |
+| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.2) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** (with objectives when the engine is composed) | Stable |
+| **Objective/progress orchestrator** | [`packages/objective-engine`](packages/objective-engine) (`@local/objective-engine` 0.1.0) + [`docs/objective-engine.md`](docs/objective-engine.md) | A working MVP control plane: durable objective/progress journal, admission and round budgets, an independent verification gate, advisory Mammoth tagging, and a driver that drops progress prompts over time | **MVP implemented** — full hardening design remains |
 
-> The objective engine is a design document, not a shipped feature. No
-> `objective_*` tools, `@local/objective-engine` bundle, or durable journal
-> exist yet. The design is included because it is the third part of the setup
-> and it explains where swarm mode is going.
+> The objective engine now ships as a working MVP in
+> [`packages/objective-engine`](packages/objective-engine). The full design —
+> commit pinning, worktree isolation, human acknowledgment, cross-process
+> durability — is still a plan and is documented in
+> [`docs/design/`](docs/design/objective-progress-swarm-design.md).
 
 ---
 
@@ -108,7 +109,10 @@ against). See [Compatibility](#compatibility).
 2. Install the System One bundle
    same screen, choose:  <repo>/packages/dsh-systemone
 
-3. Point System One at your decision endpoint
+3. Install the objective engine bundle
+   same screen, choose:  <repo>/packages/objective-engine
+
+4. Point System One at your decision endpoint
    Settings -> Decision model
      endpoint:  http://127.0.0.1:8008/v1/systemone
      model:     <the model id your endpoint serves>
@@ -116,8 +120,11 @@ against). See [Compatibility](#compatibility).
      mode:      shadow          (observe first; enforce later)
      API key:   stored by DSH's credential service under SYSTEMONE_API_KEY
 
-4. Use it
-   New session -> preset "Orchestrator" -> ask it to enter swarm mode
+5. Use it
+   New session -> preset "Orchestrator"
+     objective_system { action: "resume" }     # arms the driver (it boots paused)
+     objective_create { statement, criteria }    # the engine starts prompting
+   Or, for swarm routing: ask the orchestrator to enter swarm mode
    (it calls swarm_enter), then let swarm_assign route stages to personas
 ```
 
@@ -154,7 +161,8 @@ a complete, credential-free profile patch.
 | DSH profile team packages | 0.2.2-rc.1 |
 | Bundled Node / pnpm shipped with DSH | Node 24.21.0 / pnpm 11.28.5 |
 | `@local/dsh-personas` | 1.0.0 — no runtime dependencies |
-| `@local/systemone` | 0.2.1 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; declares `@deepseek-ai/dsh-tools` 0.2.1-rc.3, `@deepseek-ai/schemastery` ~3.18.5; browser half at `lib/client.js` (`platform: web`) |
+| `@local/systemone` | 0.2.2 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; declares `@deepseek-ai/dsh-tools` 0.2.1-rc.3, `@deepseek-ai/schemastery` ~3.18.5; browser half at `lib/client.js` (`platform: web`) |
+| `@local/objective-engine` | 0.1.0 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; no runtime dependencies |
 
 DSH's plugin API is young. Treat the versions above as the tested set: if you
 run a different DSH release, install in `shadow` mode first and check

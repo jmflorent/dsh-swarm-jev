@@ -4,8 +4,11 @@ This document explains the orchestrator idea behind this repository, what is
 implemented today, what is designed but not built, and how the two connect.
 
 **Status in one line:** swarm mode is implemented in the
-[`dsh-systemone`](../packages/dsh-systemone) bundle; the objective/progress agent
-type is **design complete and not implemented** — the full design is in
+[`dsh-systemone`](../packages/dsh-systemone) bundle; the objective/progress
+control plane now ships as a working **MVP** in
+[`packages/objective-engine`](../packages/objective-engine)
+([reference](objective-engine.md)); the remaining hardening work is still the
+decision-complete design in
 [`docs/design/objective-progress-swarm-design.md`](design/objective-progress-swarm-design.md).
 
 ---
@@ -164,6 +167,11 @@ children, expires wakeups, and survives restart.
 | **Phase 1** | The control-plane plugin: journal, admission, budgets, wakeups, completion gate, verifier preset, tests | Phase 0 on ≥10 supervised objectives with zero completion-gate bypasses; writeup of every bypass |
 | **Phase 2** | Always-on hardening: circuit breaker, durable cadence, worktree isolation + serialized merge queue, ack surface, metrics, 72 h soak | Phase 1 acceptance green; two weeks of supervised use; incident review; decisions on the open questions |
 
+The MVP in `packages/objective-engine` implements the core loop of Phase 1 —
+journal, admission, budgets, verification gate, event-driven progress prompts,
+tests — but not the remaining hardening items. Phase 0 is therefore optional for
+this kit; the MVP is the recommended starting point.
+
 The design carries a **REQUEST CHANGES** review verdict with **nine must-fix
 conditions**. Section 10.4 of the design maps each condition to its mechanism
 and to Phase 0/1/2 tests, and the coverage statement is explicit that conditions
@@ -180,7 +188,7 @@ prototype** — not the engine.
 
 **Setup**
 
-1. Install both bundles and set System One to `mode: shadow` first.
+1. Install the bundles and set System One to `mode: shadow` first.
 2. Confirm `@deepseek-ai/dsh-experimental-agent-team-profile` is in the profile
    (it provides the team board).
 3. Start a session with the **Orchestrator** preset.

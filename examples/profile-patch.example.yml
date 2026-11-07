@@ -1,4 +1,4 @@
-# Example DSH profile patch for the two bundles in this repository.
+# Example DSH profile patch for the three bundles in this repository.
 #
 # Copy to ~/.dsh/profiles/<profile>/cordis.patch.yml (merge with what is
 # already there), edit the placeholders, and restart DSH. This file contains
@@ -207,3 +207,18 @@
 
       # Add the other role presets (orchestrator, architect, writer,
       # researcher) the same way, each with its own taxonomy and thresholds.
+
+# ---------------------------------------------------------------------------
+# Objective engine (optional but recommended for the objective/progress loop).
+# It has no credentials and boots paused; resume from a session.
+- id: objective-engine
+  name: '@local/objective-engine'
+  config:
+    # enabled: true
+    maxActiveObjectives: 3
+    maxQueuedObjectives: 16
+    maxRoundsPerObjective: 12
+    progressIntervalMs: 45000
+    minWakeGapMs: 8000
+    # classification:
+    #   enabled: true

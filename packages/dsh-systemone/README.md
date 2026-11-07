@@ -129,6 +129,10 @@ It shows, live:
 - the recent decision feed — tool selection, call assessment, persona policy,
   loop guard, and `swarm_assign` stage → persona — with the counters beside it.
 
+When the `@local/objective-engine` bundle is also composed, the panel adds an
+**Objectives** block: the engine's paused/running state, admission counts, and
+each tracked objective with its round budget.
+
 The panel polls every 3 s (paused in a hidden tab; refresh on visibility) and
 has a manual refresh button. Its **»** button collapses the sidebar; the
 sidebar's own chrome also collapses and re-opens it.

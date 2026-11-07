@@ -876,6 +876,19 @@ export function apply(ctx, config) {
   ctx.effect(() => ctx.tools.register(swarmEnterTool))
   ctx.effect(() => ctx.tools.register(swarmExitTool))
   ctx.effect(() => ctx.tools.register(swarmAssignTool))
+  // Decision-plane seam for other host plugins (the objective engine's advisory
+  // classifier). Read-only: no credentials, no state mutation.
+  try {
+    if (typeof ctx.provide === 'function') {
+      ctx.provide('systemone', {
+        decide: (state, questions, signal) => runtime.decide(state, questions, signal),
+        status: () => runtime.status(),
+      })
+    }
+  } catch (error) {
+    ctx.logger?.warn?.('[systemone] decision-plane service not provided', error?.message ?? error)
+  }
+
   // Browser swarm panel: one same-origin, connection-authenticated JSON snapshot.
   // Registered only where the Web host and its connection gate are composed, so
   // headless profiles never expose a route. `connection.admit` applies the
