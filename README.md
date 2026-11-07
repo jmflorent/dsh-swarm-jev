@@ -10,7 +10,7 @@ bundles with a `cordis.patch.yml`, plain ES modules, and Markdown.
 | Part | Package / location | What it gives you | Status |
 |---|---|---|---|
 | **Role personas** | [`packages/dsh-personas`](packages/dsh-personas) (`@local/dsh-personas` 1.0.0) | Five agent presets — orchestrator, architect, writer, reviewer, researcher — layered over the shipped DSH presets | Stable |
-| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.0) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, and the **Settings → Decision model** page | Stable |
+| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.0) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** | Stable |
 | **Objective/progress orchestrator** | [`docs/orchestrator.md`](docs/orchestrator.md) + [`docs/design/`](docs/design/objective-progress-swarm-design.md) | A decision-complete design for a managed objective registry, event-driven wakeups, budgets, a verifier-gated completion gate, and a kill switch | **Design only — not implemented** |
 
 > The objective engine is a design document, not a shipped feature. No

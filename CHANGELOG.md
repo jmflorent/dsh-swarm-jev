@@ -10,6 +10,16 @@ DeepSeek Harness release it runs on. See
 
 ## [Unreleased]
 
+### Added
+
+- `packages/dsh-systemone` — a live **Swarm** panel in the right sidebar
+  (`lib/client.js`): active swarm sessions with preset and session id, the
+  persona catalog with `swarm_assign` counts, the recent decision feed, the
+  counters, and the live decision plane. It auto-opens once when a session
+  enters swarm mode and collapses with the sidebar. Data comes from the
+  authenticated `GET /systemone/panel.json` snapshot route, which reports
+  decision metadata only and refuses unauthenticated or cross-origin requests.
+
 ## [0.1.0] — 2026-11-07
 
 ### Added

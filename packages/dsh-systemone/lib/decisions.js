@@ -1059,6 +1059,47 @@ const SWARM_POLICY = [
     install,
     swarm,
     decide: (state, questions, signal) => decide(state, questions, signal),
+    /**
+     * Read-only snapshot for the browser swarm panel.
+     *
+     * Safe to expose to an authenticated same-origin page: it carries decision
+     * metadata only (counters, recent decisions, persona catalog, the set of
+     * swarm-mode sessions by opaque Session id). It never carries prompts,
+     * credentials, tool arguments, or session content.
+     */
+    panel: () => {
+      const members = []
+      for (const agent of swarmSessions) {
+        const sessionId = agent?.session?.id
+        const preset = presetOf(agent)
+        members.push({
+          ...(typeof sessionId === 'string' ? { sessionId } : {}),
+          ...(typeof preset === 'string' ? { preset } : {}),
+        })
+      }
+      const personas = Object.entries(settings.swarm?.personas ?? {}).map(([id, persona]) => ({
+        id,
+        description: typeof persona?.description === 'string' ? persona.description : '',
+      }))
+      return {
+        ok: true,
+        generatedAt: new Date().toISOString(),
+        engine: {
+          mode: settings.mode,
+          endpoint: settings.endpoint,
+          model: settings.model,
+          timeoutMs: settings.timeoutMs,
+          presets: [...(settings.swarm?.presets ?? [])],
+        },
+        swarm: {
+          active: swarmSessions.size,
+          members,
+          personas,
+        },
+        stats: JSON.parse(JSON.stringify(stats)),
+        recent: JSON.parse(JSON.stringify(recent)),
+      }
+    },
     status: () => ({
       mode: settings.mode,
       endpoint: settings.endpoint,

@@ -2,7 +2,7 @@
  * Self-test for the systemone plugin: tools, decision layer, and vision.
  *
  * Imports the real package directly; the vendored dependencies in
- * package's installed dependencies provide the genuine @deepseek-ai/dsh-tools
+ * systemone-plugin/node_modules provide the genuine @deepseek-ai/dsh-tools
  * defineTool and @deepseek-ai/schemastery, so this exercises the exact code
  * and validation the installed plugin will run. The harness itself is
  * replaced by a fake Cordis context that only records registrations.
@@ -241,6 +241,22 @@ const presetRuntime = createDecisionRuntime(
   Config({ endpoint, presets: { reviewer: { mode: 'enforce' } } }),
 )
 assert.deepEqual(presetRuntime.status().presetOverrides, ['reviewer'], 'preset overrides reported')
+
+// --- 4b. panel snapshot: swarm members, personas, counters ------------------
+const panelRuntime = createDecisionRuntime(ctx, Config({ endpoint }))
+const panelAgent = { session: { id: 'session-panel-selftest' }, inject: () => {} }
+panelRuntime.swarm.enter(panelAgent)
+const panel = panelRuntime.panel()
+assert.equal(panel.ok, true, 'panel snapshot answers')
+assert.equal(panel.swarm.active, 1, 'panel reports one swarm session')
+assert.deepEqual(panel.swarm.members, [{ sessionId: 'session-panel-selftest' }], 'panel member session id')
+assert.ok(Array.isArray(panel.swarm.personas) && panel.swarm.personas.length >= 5, 'panel persona catalog')
+assert.equal(typeof panel.engine.mode, 'string', 'panel engine mode')
+assert.equal(typeof panel.stats, 'object', 'panel counters')
+assert.ok(Array.isArray(panel.recent), 'panel recent decisions')
+assert.equal(typeof panel.generatedAt, 'string', 'panel timestamp')
+panelRuntime.swarm.exit(panelAgent)
+assert.equal(panelRuntime.panel().swarm.active, 0, 'panel returns to zero after exit')
 
 // --- 5. connection failure is a structured domain outcome ------------------
 const { ctx: ctx2, registered: registered2 } = makeContext()

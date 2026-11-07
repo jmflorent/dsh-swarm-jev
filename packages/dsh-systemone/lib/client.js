@@ -18,6 +18,13 @@ window.__ModuleLoader__.load({
 		const SECTION_ORDER = 40;
 		const MODES = ["off", "shadow", "enforce", "swarm"];
 
+		/** Right-sidebar page type for the live swarm panel. */
+		const SWARM_KIND = "systemone-swarm";
+		const SWARM_TAB_ID = "@local/systemone/swarm-panel";
+		/** Same-origin JSON snapshot published by the host half of this plugin. */
+		const SWARM_PANEL_PATH = "systemone/panel.json";
+		const SWARM_POLL_MS = 3000;
+
 		const en = {
 			nav: "Decision model",
 			title: "Decision model",
@@ -59,6 +66,28 @@ window.__ModuleLoader__.load({
 			credentialCleared: "The stored key was cleared.",
 			credentialClearFailed: "The key could not be cleared.",
 			loading: "Loading…",
+			panelTitle: "Swarm",
+			panelGuideTitle: "Swarm",
+			panelGuideDescription: "Live swarm state: sessions in swarm mode, personas, assignments, and recent decisions.",
+			panelRefresh: "Refresh now",
+			panelCollapse: "Collapse panel",
+			panelActive: "ACTIVE",
+			panelIdle: "IDLE",
+			panelSessions: "Swarm sessions",
+			panelPersonas: "Personas",
+			panelOperations: "Recent operations",
+			panelCounters: "Counters",
+			panelNoSwarm: "No session is in swarm mode.",
+			panelNoSwarmHint: "Run swarm_enter in a session to start the swarm.",
+			panelNoOps: "No decisions recorded yet.",
+			panelThisSession: "this session",
+			panelSession: "session",
+			panelConnecting: "Connecting to the swarm control plane…",
+			panelUnavailable: "The swarm panel endpoint is unavailable.",
+			panelUpdated: "updated",
+			panelMode: "mode",
+			panelEndpoint: "endpoint",
+			panelModel: "model",
 		};
 
 		const zh = {
@@ -100,6 +129,28 @@ window.__ModuleLoader__.load({
 			credentialCleared: "已清除保存的密钥。",
 			credentialClearFailed: "无法清除密钥。",
 			loading: "加载中…",
+			panelTitle: "Swarm",
+			panelGuideTitle: "Swarm 面板",
+			panelGuideDescription: "实时 swarm 状态：处于 swarm 模式的会话、角色、分配以及最近决策。",
+			panelRefresh: "立即刷新",
+			panelCollapse: "收起面板",
+			panelActive: "运行中",
+			panelIdle: "空闲",
+			panelSessions: "Swarm 会话",
+			panelPersonas: "角色",
+			panelOperations: "最近操作",
+			panelCounters: "计数器",
+			panelNoSwarm: "当前没有会话处于 swarm 模式。",
+			panelNoSwarmHint: "在某个会话中运行 swarm_enter 即可启动 swarm。",
+			panelNoOps: "还没有记录决策。",
+			panelThisSession: "当前会话",
+			panelSession: "会话",
+			panelConnecting: "正在连接 swarm 控制面…",
+			panelUnavailable: "无法访问 swarm 面板接口。",
+			panelUpdated: "更新于",
+			panelMode: "模式",
+			panelEndpoint: "地址",
+			panelModel: "模型",
 		};
 
 		const styles = {
@@ -157,6 +208,327 @@ window.__ModuleLoader__.load({
 		const isHttpUrl = (value) => /^https?:\/\/\S+$/i.test(value.trim());
 
 		const numberOf = (value) => (typeof value === "number" ? value : Number(value));
+
+		const panelStyles = {
+			root: {
+				display: "flex",
+				flexDirection: "column",
+				gap: "14px",
+				padding: "12px 14px 18px",
+				fontSize: "12.5px",
+				lineHeight: 1.45,
+				color: "inherit",
+				height: "100%",
+				boxSizing: "border-box",
+				overflowY: "auto",
+			},
+			header: { display: "flex", alignItems: "center", gap: "8px" },
+			title: { margin: 0, fontSize: "14px", fontWeight: 700, letterSpacing: "0.02em", flex: 1 },
+			iconButton: {
+				border: "1px solid rgba(127,127,127,0.35)",
+				background: "transparent",
+				color: "inherit",
+				borderRadius: "6px",
+				cursor: "pointer",
+				fontSize: "12px",
+				lineHeight: 1,
+				padding: "4px 7px",
+			},
+			pill: {
+				display: "inline-flex",
+				alignItems: "center",
+				borderRadius: "999px",
+				padding: "2px 8px",
+				fontSize: "10.5px",
+				fontWeight: 700,
+				letterSpacing: "0.06em",
+				border: "1px solid currentColor",
+				whiteSpace: "nowrap",
+			},
+			engine: { display: "grid", gridTemplateColumns: "auto 1fr", columnGap: "8px", rowGap: "2px", opacity: 0.72, fontSize: "11.5px" },
+			sectionTitle: { margin: 0, fontSize: "10.5px", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.6 },
+			card: { border: "1px solid rgba(127,127,127,0.28)", borderRadius: "8px", padding: "8px 10px", display: "flex", flexDirection: "column", gap: "6px" },
+			row: { display: "flex", alignItems: "baseline", gap: "8px", minWidth: 0 },
+			badge: { fontSize: "10px", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", minWidth: "54px", flex: "none" },
+			text: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+			meta: { opacity: 0.6, fontSize: "10.5px", whiteSpace: "nowrap", flex: "none" },
+			chip: { display: "inline-flex", alignItems: "center", gap: "4px", border: "1px solid rgba(127,127,127,0.3)", borderRadius: "999px", padding: "2px 8px", fontSize: "11px", whiteSpace: "nowrap" },
+			hint: { margin: 0, opacity: 0.7, fontStyle: "italic" },
+			error: { color: "#b3261e", fontStyle: "normal" },
+			footer: { opacity: 0.6, fontSize: "10.5px", display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" },
+			mono: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: "10.5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+		};
+
+		const toneColor = (tone) => {
+			if (tone === "ok") return "#1a7f37";
+			if (tone === "warn") return "#9a6700";
+			if (tone === "bad") return "#b3261e";
+			if (tone === "accent") return "#2f6fed";
+			return "rgba(127,127,127,0.9)";
+		};
+
+		const secondsAgo = (timestamp) => {
+			if (typeof timestamp !== "number" || timestamp <= 0) return "—";
+			const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+			if (seconds < 2) return "now";
+			if (seconds < 60) return `${seconds}s`;
+			return `${Math.round(seconds / 60)}m`;
+		};
+
+		const decisionLine = (entry) => {
+			const decision = typeof entry?.decision === "string" ? entry.decision : "event";
+			if (decision === "assign") {
+				return {
+					badge: "assign",
+					tone: "accent",
+					text: `${entry?.stage ?? "stage"} → ${entry?.persona ?? "persona"}`,
+					meta: typeof entry?.latencyMs === "number" ? `${entry.latencyMs}ms` : "",
+				};
+			}
+			if (decision === "selection") {
+				const latency = typeof entry?.latencyMs === "number" ? `${entry.latencyMs}ms` : "";
+				return {
+					badge: "select",
+					tone: "accent",
+					text: `${entry?.allow ?? "?"} of ${entry?.categories ?? "?"} tool categories`,
+					meta: latency,
+				};
+			}
+			if (decision === "assessment" || decision === "policy" || decision === "loop") {
+				const action = typeof entry?.action === "string" ? entry.action : decision === "loop" ? "repeat" : "?";
+				const tone = action === "deny" || action === "cancel" || action === "repeat" ? "bad" : action === "ask" ? "warn" : "ok";
+				const detail = entry?.reason ?? entry?.note ?? "";
+				return {
+					badge: decision === "policy" ? "policy" : decision === "loop" ? "loop" : "assess",
+					tone,
+					text: `${entry?.tool ?? "tool"} → ${action}`,
+					meta: typeof detail === "string" ? detail.slice(0, 60) : "",
+				};
+			}
+			return { badge: decision, tone: "neutral", text: "", meta: typeof entry?.at === "string" ? entry.at.slice(11, 19) : "" };
+		};
+
+		const counterLine = (stats) => {
+			const s = stats !== null && typeof stats === "object" ? stats : {};
+			return `${s.selections ?? 0} sel · ${s.assessments ?? 0} assess · ${s.loopDenials ?? 0} loop · ${s.asks ?? 0} ask · ${s.failures ?? 0} fail`;
+		};
+
+		const mountedSessionId = (ctx) => {
+			try {
+				const mounted = ctx.sidebarRight?.mounted?.getSnapshot?.();
+				return typeof mounted === "string" ? mounted : undefined;
+			} catch {
+				return undefined;
+			}
+		};
+
+		/**
+		 * Poll the host snapshot and open the panel once when a swarm session appears.
+		 * One poller per browser plugin instance keeps every open panel in sync.
+		 */
+		function createPanelPoller(ctx) {
+			let snapshot = { status: "idle", data: undefined, error: undefined, updatedAt: 0 };
+			const listeners = new Set();
+			let timer;
+			let disposed = false;
+			let inflight = false;
+			let autoOpenedFor;
+			const emit = () => {
+				for (const listener of [...listeners]) {
+					try {
+						listener();
+					} catch {
+						/* A panel render failure must not stop the poller. */
+					}
+				}
+			};
+			const publish = (next) => {
+				snapshot = next;
+				emit();
+			};
+			const maybeAutoOpen = (data) => {
+				const active = typeof data?.swarm?.active === "number" ? data.swarm.active : 0;
+				if (active <= 0) {
+					autoOpenedFor = undefined;
+					return;
+				}
+				const members = Array.isArray(data?.swarm?.members) ? data.swarm.members : [];
+				const mounted = mountedSessionId(ctx);
+				const isMember = mounted !== undefined && members.some((member) => member?.sessionId === mounted);
+				const unknownMembers = members.some((member) => typeof member?.sessionId !== "string");
+				const target = isMember || unknownMembers ? mounted : undefined;
+				const key = target ?? "fallback";
+				if (autoOpenedFor === key) return;
+				autoOpenedFor = key;
+				try {
+					if (target !== undefined && typeof ctx.sidebarRight?.openTabIn === "function") ctx.sidebarRight.openTabIn(target, SWARM_KIND);
+					else ctx.sidebarRight?.openTab?.(SWARM_KIND);
+				} catch {
+					/* No on-screen Session surface yet; the guide entry stays available. */
+				}
+			};
+			const refresh = async () => {
+				if (disposed || inflight) return;
+				inflight = true;
+				try {
+					const base = typeof document !== "undefined" ? document.baseURI : undefined;
+					if (base === undefined) throw new Error("no document");
+					const response = await fetch(new URL(SWARM_PANEL_PATH, base), {
+						credentials: "same-origin",
+						cache: "no-store",
+						headers: { accept: "application/json" },
+					});
+					if (!response.ok) throw new Error(`HTTP ${response.status}`);
+					const data = await response.json();
+					publish({ status: "ready", data, error: undefined, updatedAt: Date.now() });
+					maybeAutoOpen(data);
+				} catch (error) {
+					publish({
+						status: "error",
+						data: snapshot.data,
+						error: error instanceof Error ? error.message : String(error),
+						updatedAt: snapshot.updatedAt,
+					});
+				} finally {
+					inflight = false;
+				}
+			};
+			const tick = () => {
+				if (typeof document !== "undefined" && document.hidden) return;
+				refresh();
+			};
+			const start = () => {
+				if (timer !== undefined || disposed) return;
+				refresh();
+				timer = setInterval(tick, SWARM_POLL_MS);
+				if (typeof document !== "undefined") document.addEventListener("visibilitychange", tick);
+			};
+			const dispose = () => {
+				disposed = true;
+				if (timer !== undefined) clearInterval(timer);
+				timer = undefined;
+				if (typeof document !== "undefined") document.removeEventListener("visibilitychange", tick);
+				listeners.clear();
+			};
+			return {
+				getSnapshot: () => snapshot,
+				subscribe: (listener) => {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+				refresh,
+				start,
+				dispose,
+			};
+		}
+
+		const sectionTitle = (title) => h("p", { style: panelStyles.sectionTitle }, title);
+
+		/** The live swarm panel body inside the right sidebar. */
+		function SwarmPanel(props) {
+			const { poller, sessionId, collapse, t } = props;
+			const [snapshot, setSnapshot] = React.useState(() => poller.getSnapshot());
+			React.useEffect(() => poller.subscribe(() => setSnapshot(poller.getSnapshot())), [poller]);
+
+			const data = snapshot.data;
+			const active = typeof data?.swarm?.active === "number" ? data.swarm.active : 0;
+			const members = Array.isArray(data?.swarm?.members) ? data.swarm.members : [];
+			const personas = Array.isArray(data?.swarm?.personas) ? data.swarm.personas : [];
+			const recent = Array.isArray(data?.recent) ? data.recent : [];
+			const engine = data?.engine !== null && typeof data?.engine === "object" ? data.engine : {};
+			const stats = data?.stats !== null && typeof data?.stats === "object" ? data.stats : {};
+			const assignments = new Map();
+			for (const entry of recent) {
+				if (entry?.decision === "assign" && typeof entry.persona === "string") {
+					assignments.set(entry.persona, (assignments.get(entry.persona) ?? 0) + 1);
+				}
+			}
+
+			return h(
+				"div",
+				{ style: panelStyles.root },
+				h(
+					"div",
+					{ style: panelStyles.header },
+					h("h2", { style: panelStyles.title }, t("panelTitle")),
+					h("span", { style: { ...panelStyles.pill, color: active > 0 ? "#1a7f37" : "rgba(127,127,127,0.9)" } }, active > 0 ? t("panelActive") : t("panelIdle")),
+					h("button", { type: "button", title: t("panelRefresh"), style: panelStyles.iconButton, onClick: () => poller.refresh() }, "⟳"),
+					h("button", { type: "button", title: t("panelCollapse"), style: panelStyles.iconButton, onClick: () => { try { collapse(); } catch { /* no surface */ } } }, "»"),
+				),
+				h(
+					"div",
+					{ style: panelStyles.engine },
+					h("span", null, t("panelMode")),
+					h("span", { style: panelStyles.mono }, typeof engine.mode === "string" ? engine.mode : "—"),
+					h("span", null, t("panelModel")),
+					h("span", { style: panelStyles.mono }, typeof engine.model === "string" ? engine.model : "—"),
+					h("span", null, t("panelEndpoint")),
+					h("span", { style: panelStyles.mono }, typeof engine.endpoint === "string" ? engine.endpoint : "—"),
+				),
+				snapshot.status === "idle" ? h("p", { style: panelStyles.hint }, t("panelConnecting")) : null,
+				snapshot.status === "error" ? h("p", { style: { ...panelStyles.hint, ...panelStyles.error } }, `${t("panelUnavailable")} ${snapshot.error ?? ""}`) : null,
+				sectionTitle(t("panelSessions")),
+				active === 0
+					? h(
+							"div",
+							{ style: panelStyles.card },
+							h("p", { style: { margin: 0 } }, t("panelNoSwarm")),
+							h("p", { style: panelStyles.hint }, t("panelNoSwarmHint")),
+						)
+					: h(
+							"div",
+							{ style: { ...panelStyles.card, gap: "4px" } },
+							members.map((member, index) =>
+								h(
+									"div",
+									{ key: `${member?.sessionId ?? "unknown"}-${index}`, style: panelStyles.row },
+									h("span", { style: panelStyles.chip }, typeof member?.preset === "string" ? member.preset : "—"),
+									h("span", { style: { ...panelStyles.mono, flex: 1 } }, typeof member?.sessionId === "string" ? member.sessionId : t("panelSession")),
+									member?.sessionId === sessionId ? h("span", { style: { ...panelStyles.chip, opacity: 0.75 } }, t("panelThisSession")) : null,
+								),
+							),
+						),
+				sectionTitle(t("panelPersonas")),
+				h(
+					"div",
+					{ style: { display: "flex", flexWrap: "wrap", gap: "6px" } },
+					personas.map((persona) =>
+						h(
+							"span",
+							{ key: persona.id, style: panelStyles.chip, title: typeof persona.description === "string" ? persona.description : "" },
+							`${persona.id}${assignments.get(persona.id) ? ` ×${assignments.get(persona.id)}` : ""}`,
+						),
+					),
+				),
+				sectionTitle(t("panelOperations")),
+				recent.length === 0
+					? h("p", { style: panelStyles.hint }, t("panelNoOps"))
+					: h(
+							"div",
+							{ style: { ...panelStyles.card, gap: "5px" } },
+							recent
+								.slice()
+								.reverse()
+								.slice(0, 12)
+								.map((entry, index) => {
+									const line = decisionLine(entry);
+									return h(
+										"div",
+										{ key: `${entry?.at ?? "t"}-${index}`, style: panelStyles.row },
+										h("span", { style: { ...panelStyles.badge, color: toneColor(line.tone) } }, line.badge),
+										h("span", { style: panelStyles.text }, line.text),
+										h("span", { style: panelStyles.meta }, line.meta),
+									);
+								}),
+						),
+				h(
+					"div",
+					{ style: panelStyles.footer },
+					h("span", null, counterLine(stats)),
+					h("span", null, `${t("panelUpdated")} ${secondsAgo(snapshot.updatedAt)}`),
+				),
+			);
+		}
 
 		function DecisionModelSection(props) {
 			const { ctx, t } = props;
@@ -406,7 +778,7 @@ window.__ModuleLoader__.load({
 		}
 
 		/** Services this browser plugin needs at apply time. */
-		const inject = ["slots", "locale", "remote", "remote.credentials", "configForms"];
+		const inject = ["slots", "locale", "remote", "remote.credentials", "configForms", "sidebarRight", "sidebarRightTabs"];
 
 		function apply(ctx) {
 			const t = ctx.locale.bind(NS);
@@ -429,6 +801,51 @@ window.__ModuleLoader__.load({
 						),
 					),
 				"systemone-settings: settings section",
+			);
+
+			// Live swarm panel in the right sidebar: a collapsible tab beside
+			// files/browser/terminal, fed by the authenticated snapshot route.
+			const panelPoller = createPanelPoller(ctx);
+			ctx.effect(() => {
+				panelPoller.start();
+				return () => panelPoller.dispose();
+			}, "systemone-settings: swarm poller");
+			ctx.effect(
+				() =>
+					ctx.sidebarRightTabs.register({
+						id: SWARM_TAB_ID,
+						kind: SWARM_KIND,
+						title: () => t("panelTitle"),
+						guide: [
+							{
+								id: "swarm",
+								order: 40,
+								title: () => t("panelGuideTitle"),
+								description: () => t("panelGuideDescription"),
+							},
+						],
+					}),
+				"systemone-settings: swarm tab type",
+			);
+			ctx.effect(
+				() =>
+					ctx.slots.inject("sidebar.right.pane.tab", () =>
+						ctx.slots.register(
+							{
+								name: "sidebar.right.pane.tab",
+								key: SWARM_TAB_ID,
+								locale: NS,
+								inject: (sessionId) => ({
+									poller: panelPoller,
+									sessionId,
+									t,
+									collapse: () => ctx.sidebarRight.toggleExpanded(),
+								}),
+							},
+							SwarmPanel,
+						),
+					),
+				"systemone-settings: swarm panel body",
 			);
 		}
 

@@ -744,6 +744,42 @@ Non-volatile settings — limits, taxonomy, thresholds, policy, judge, swarm
 catalog — have no Settings field; edit the profile patch. See
 [`docs/configuration.md`](configuration.md) for every field.
 
+## Right-sidebar swarm panel
+
+The browser half also registers a **Swarm** tab in the right sidebar. Open the
+right sidebar from the conversation header corner, then pick **Swarm** from the
+strip's guide — or let it auto-open: a poller opens the tab once when a session
+on screen enters swarm mode. The panel is collapsible with the sidebar's own
+collapse control, and its header carries a **»** button that collapses it too.
+
+It shows, live:
+
+| Block | Content |
+|---|---|
+| Decision plane | `mode`, `model`, `endpoint` from the live configuration |
+| Swarm sessions | one row per session in swarm mode: its preset and session id, with the on-screen session marked |
+| Personas | the `swarm.personas` catalog, with `swarm_assign` counts from the recent feed |
+| Recent operations | the last decisions, newest first: tool selection, call assessment, persona policy, loop guard, and `swarm_assign` stage → persona |
+| Counters | selections, assessments, loop denials, asks, failures |
+
+The panel polls every 3 s, pauses while the tab is hidden, refreshes on
+visibility, and offers a manual refresh button.
+
+### Data path and access
+
+`GET /systemone/panel.json` is registered only where the Web host
+(`webServer`) and its connection gate (`connection`) are composed; a headless
+profile never exposes it. The handler runs `connection.admit(request)`, which
+applies the same Host/Origin fence and browser-session cookie check as `/api`:
+a request without an authenticated browser session receives **401**, and a
+request from an untrusted Host or cross-site Origin is refused. The payload is
+decision metadata only — counters, recent decisions, persona catalog, and
+opaque swarm-mode session ids — never prompts, tool arguments, credentials, or
+session content.
+
+No configuration controls the panel; disabling the bundle removes both the tab
+type and the route.
+
 ## Images and the vision limitation
 
 `systemone_ask` accepts `images: [{ path, name? }]` and speaks the TypeSafe

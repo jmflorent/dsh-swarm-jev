@@ -24,9 +24,9 @@ sent on every request is the `model` field.
 
 Per-preset overrides (`presets.<id>`) select the taxonomy, mode, and thresholds
 for a session's composing preset (resolved through `ctx.get('agentPresets')`).
-Deployment overrides belong in the profile patch (row id `systemone`);
-`layer.presetOverrides` lists them and every selection decision records the
-detected `preset`.
+This profile ships overrides for `orchestrator`, `architect`, `writer`,
+`reviewer`, and `researcher`; `layer.presetOverrides` lists them and every
+selection decision records the detected `preset`.
 
 Modes:
 
@@ -114,6 +114,32 @@ The key is resolved through `ctx.credentials.resolve` and then the environment,
 so a deployment that supplies `SYSTEMONE_API_KEY` externally can leave the
 Settings field blank.
 
+## Swarm panel (right sidebar)
+
+The browser half also registers a **Swarm** tab in the right sidebar. Open the
+right sidebar (its expand button sits in the conversation header corner), pick
+**Swarm** from the guide — or let it auto-open: the poller opens the tab once
+when a session enters swarm mode.
+
+It shows, live:
+
+- the decision plane: mode, model, and endpoint;
+- active swarm sessions with their preset and session id (the on-screen session
+  is marked), plus the persona catalog with assignment counts;
+- the recent decision feed — tool selection, call assessment, persona policy,
+  loop guard, and `swarm_assign` stage → persona — with the counters beside it.
+
+The panel polls every 3 s (paused in a hidden tab; refresh on visibility) and
+has a manual refresh button. Its **»** button collapses the sidebar; the
+sidebar's own chrome also collapses and re-opens it.
+
+Data path: `GET /systemone/panel.json`, registered only where the Web host and
+its connection gate are composed. The handler runs `connection.admit(request)`,
+which applies the same Host/Origin fence and browser-session cookie check as
+`/api`, so an unauthenticated request receives 401. The payload is decision
+metadata only — counters, recent decisions, persona catalog, and swarm-mode
+session ids — never prompts, tool arguments, credentials, or session content.
+
 ## Questions
 
 `noul`, `choice`, `score`, and `box`. A `box` question locates what its
@@ -128,10 +154,10 @@ assets protocol: `multipart/form-data` with a `request` JSON part plus
 `asset-N` binary parts, referenced from `state` as `{ assets: { alias: { type,
 part } } }`.
 
-**The reference deployment does not accept it.** Its server parses the body as
-JSON only (`POST` with `application/json`) and answers `422 invalid JSON` to
-multipart, so image decisions are unavailable there; the tool returns an
-explicit error instead of a silent failure. The client code is retained for
+**This deployment does not accept it.** The Qev Playground server parses the
+body as JSON only (`POST` with `application/json`) and answers `422 invalid
+JSON` to multipart, so image decisions are unavailable here; the tool returns
+an explicit error instead of a silent failure. The client code is retained for
 a TypeSafe-compatible endpoint. Base64 in `state` is not a substitute — the
 contract expects assets.
 

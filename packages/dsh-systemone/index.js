@@ -885,6 +885,43 @@ export function apply(ctx, config) {
   ctx.effect(() => ctx.tools.register(swarmEnterTool))
   ctx.effect(() => ctx.tools.register(swarmExitTool))
   ctx.effect(() => ctx.tools.register(swarmAssignTool))
+  // Browser swarm panel: one same-origin, connection-authenticated JSON snapshot.
+  // Registered only where the Web host and its connection gate are composed, so
+  // headless profiles never expose a route. `connection.admit` applies the
+  // Host/Origin fence and the browser-session cookie check used by /api.
+  if (typeof ctx.inject === 'function' && typeof runtime.panel === 'function') {
+    ctx.inject(['webServer', 'connection'], (webCtx) => {
+      const respond = (status, body) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+          },
+        })
+      webCtx.effect(
+        () =>
+          webCtx.webServer.register({
+            kind: 'exact',
+            path: '/systemone/panel.json',
+            resource: (request) => {
+              try {
+                const connection = webCtx.connection ?? webCtx.get?.('connection')
+                const admission = connection?.admit?.(request)
+                if (admission === undefined || 'rejection' in admission) {
+                  return respond(admission?.rejection ?? 503, { ok: false, error: 'unauthorized' })
+                }
+                return respond(200, runtime.panel())
+              } catch {
+                return respond(500, { ok: false, error: 'panel-unavailable' })
+              }
+            },
+          }),
+        'systemone: swarm panel route',
+      )
+    })
+  }
+
   const line =
     `[systemone] ready · endpoint=${settings.endpoint} · model=${settings.model} · ` +
     `mode=${settings.mode} · ` +
