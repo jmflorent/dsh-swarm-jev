@@ -88,7 +88,7 @@ the bundle list together.
 
 1. **Keep the repository somewhere permanent**, for example
    `~/Development/dsh-swarm-jev`.
-2. Open **DSH Web → Settings → Plugins**.
+2. Open the **Plugins** page from the DSH Web sidebar.
 3. Choose **Add plugin → local directory** and select
    `<repo>/packages/dsh-personas`.
 4. Repeat for `<repo>/packages/dsh-systemone`.
@@ -243,7 +243,7 @@ they started with.
 | Settings → Agent presets | Same five, after the shipped presets |
 | Settings → Decision model | Endpoint, model, timeout, mode, API key fields (after the systemone bundle loads and the Web client is running) |
 | `systemone_status({ probe: true })` in a session | `{ ok: true, probe: { ok: true, answers: { probe: { noul } } } }`, `auth` reflects the key, `layer.mode` matches configuration |
-| Settings → Plugins | Both bundles listed and enabled |
+| Plugins (sidebar) | Both bundles listed and enabled |
 
 If a row is missing, check bundle order and the profile path; if the tools are
 missing, check `layer.mode` and whether the bundle loaded (Troubleshooting).
@@ -287,7 +287,7 @@ mode.
 
 ### Disable temporarily
 
-Use **Settings → Plugins** to disable a bundle (or remove its name from
+Use the sidebar **Plugins** page to disable a bundle (or remove its name from
 `dsh.profile.bundles`) and restart. The package stays installed; the patch layer
 is not applied.
 
@@ -295,7 +295,7 @@ is not applied.
 
 1. Stop DSH.
 2. If you added a profile patch row for `systemone`, remove or comment it.
-3. Remove the bundle: Settings → Plugins → remove, or
+3. Remove the bundle on the sidebar **Plugins** page, or
    `dsh plugin --profile <name> remove @local/systemone`.
 4. Confirm `dsh.profile.bundles` and `dependencies` no longer reference the
    package (the plugin manager normally does this; check by hand if not).

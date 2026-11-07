@@ -139,7 +139,7 @@ appears only when the Web client composes it.
 
 | Check | Expected |
 |---|---|
-| Bundle installed and enabled | `@local/systemone` in the active profile's `dsh.profile.bundles` and Settings → Plugins |
+| Bundle installed and enabled | `@local/systemone` in the active profile's `dsh.profile.bundles` and enabled on the sidebar **Plugins** page |
 | Package declares the client | `package.json` has `exports["./client"]` and `dsh.client.platform === "web"` |
 | Web client running | This is the DSH Web app; headless/CLI compositions never show client pages |
 | App reloaded after install | A full Web client reload/restart, not only a host plugin reload |

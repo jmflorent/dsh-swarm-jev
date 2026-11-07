@@ -17,12 +17,14 @@ runtime context), plus `time-context`, and an isolated compaction group.
 
 ## Notes
 
-- A preset is chosen **per session**. Subagents started inside a session inherit that
-  session's preset; the subagent tool only selects a model, not a persona. To get a
-  mixed-role team in one conversation, either run roles in separate sessions or install
-  the official `@deepseek-ai/dsh-experimental-agent-team-profile` bundle.
+- A preset is chosen **per session**. A subagent started with `subagent`/`subagent_fork`
+  inherits the parent's preset unless the parent's `tool-subagent` row configures
+  `agentPreset` (and `allowedAgentPresets` to restrict the choice) — both supported in
+  DSH 0.2.2-rc.1. To get a mixed-role team in one conversation, run roles in separate
+  sessions, configure those two fields, or install the official
+  `@deepseek-ai/dsh-experimental-agent-team-profile` bundle.
 - `reviewer` is read-only by design: `write: false`, `edit: false`, `applyPatch: false`.
-- Removing the bundle from **Settings → Plugins** removes all five presets again
+- Removing the bundle on the sidebar **Plugins** page removes all five presets again
   (sessions already using one keep their composition).
 
 ## Edit

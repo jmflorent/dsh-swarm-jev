@@ -101,7 +101,7 @@ against). See [Compatibility](#compatibility).
 
 ```text
 1. Install the personas bundle
-   DSH Web -> Settings -> Plugins -> Add plugin -> local directory
+   DSH Web -> Plugins (sidebar) -> Add plugin -> local directory
    choose:  <repo>/packages/dsh-personas
 
 2. Install the System One bundle
