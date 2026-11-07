@@ -1,0 +1,54 @@
+# Dependencies and generated output
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+*.tsbuildinfo
+
+# DSH profile, runtime, and session data — never commit a user's profile
+profiles/
+.dsh/
+sessions/
+storages/
+attachments/
+*.sqlite
+*.db
+
+# Objective-engine state (design-only today; ignore it if implemented locally)
+journal.jsonl
+snapshot.json
+LOCK
+PAUSED
+.objectives/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+secrets.yml
+secrets.yaml
+credentials.json
+*credentials*
+
+# Local overrides that may contain hostnames or keys
+*.local.yml
+*.local.yaml
+
+# Logs
+*.log
+pnpm-debug.log*
+npm-debug.log*
+yarn-error.log*
+
+# Editors and operating systems
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.idea/
+.vscode/
+*.swp

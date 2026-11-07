@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "System One Decision Model",
+    "description": "Registers the systemone_ask and systemone_status tools, a configurable off/shadow/enforce/swarm decision layer (tool selection, call assessment, deterministic persona policy, loop guard, optional skill hints and model routes), and a Settings page for your self-hosted Jev-style decision model, for calibrated noul, choice, and score answers."
+  }
+}

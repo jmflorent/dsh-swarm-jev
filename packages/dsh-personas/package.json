@@ -1,0 +1,12 @@
+{
+  "name": "@local/dsh-personas",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Role personas for the dsh profile: orchestrator, architect, writer, reviewer, researcher.",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

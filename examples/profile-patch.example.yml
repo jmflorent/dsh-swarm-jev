@@ -1,0 +1,209 @@
+# Example DSH profile patch for the two bundles in this repository.
+#
+# Copy to ~/.dsh/profiles/<profile>/cordis.patch.yml (merge with what is
+# already there), edit the placeholders, and restart DSH. This file contains
+# NO credentials and no private hostnames:
+#   - the API key belongs in the DSH credential service under SYSTEMONE_API_KEY
+#     (or in the environment), never in a patch file;
+#   - the endpoint and model are placeholders — replace them.
+#
+# How the layers compose:
+#   code defaults < bundle row config < THIS profile patch < --patch overlays
+#
+# A row here is matched to the row the bundle inserts by `id` and REPLACES its
+# `config` wholesale. That is why every deployment field is restated below.
+#
+# The personas bundle needs no profile row: it inserts its five preset rows
+# itself. If you want to change a preset prompt or its tools, edit
+# packages/dsh-personas/cordis.patch.yml instead.
+
+- id: systemone
+  name: '@local/systemone'
+  config:
+    # --- endpoint and transport -------------------------------------------
+    # Full URL that receives POST { state, questions, model }.
+    endpoint: 'http://127.0.0.1:8008/v1/systemone'
+    # Model id sent with every request (your service decides its aliases).
+    model: 'decision-model'
+    # DSH credential reference; resolved through the credential service, then
+    # the environment. Empty string disables the Authorization header.
+    apiKeyRef: 'SYSTEMONE_API_KEY'
+    # Per-call deadline for one decision request.
+    timeoutMs: 20000
+    # off | shadow | enforce | swarm. Start with shadow: decisions are
+    # recorded but nothing is enforced.
+    mode: shadow
+
+    # --- limits (optional; shown with their defaults) ----------------------
+    maxQuestions: 64
+    maxRequestChars: 262144
+    maxRequestBytes: 8388608
+    maxImageBytes: 4194304
+    maxResponseChars: 1048576
+    maxStateChars: 4000
+    maxArgumentChars: 1200
+    maxCategories: 48
+    maxSelectedTools: 24
+    logDecisions: true
+    redactKeys: []
+
+    # --- tool selection -----------------------------------------------------
+    # Selection only narrows tools with a toolCategories entry. Tools with no
+    # entry are never narrowed. alwaysAllow is the escape hatch.
+    selection:
+      enabled: true
+      alwaysAllow:
+        - bash
+        - edit
+        - glob
+        - grep
+        - read
+        - write
+      categories:
+        files: 'Reading and writing files'
+        search: 'Finding code and text'
+        shell: 'Running commands'
+        web: 'Searching and fetching the web'
+        delegate: 'Delegating to subagents and workflows'
+        deliver: 'Presenting deliverables'
+        plan: 'Maintaining a todo list and asking the user'
+      toolCategories:
+        read: [files]
+        write: [files]
+        edit: [files]
+        glob: [search]
+        grep: [search]
+        bash: [shell]
+        web_search: [web]
+        web_fetch: [web]
+        subagent: [delegate]
+        subagent_fork: [delegate]
+        workflow: [delegate]
+        present: [deliver]
+        todo_write: [plan]
+        ask_user_question: [plan]
+
+    # --- per-call assessment ------------------------------------------------
+    assessment:
+      enabled: true
+      # ask: provider failure becomes an approval prompt;
+      # hold: provider failure cancels the call.
+      onFailure: ask
+      includeRiskScore: false
+      restrictions: []
+
+    # --- deterministic loop guard ------------------------------------------
+    loopDetection:
+      enabled: true
+      maxRepeats: 2
+
+    # --- optional features (off unless you are testing them) --------------
+    skills:
+      enabled: false
+      injectHint: true
+    modelRouting:
+      enabled: false
+      routes: {}
+
+    # --- probability thresholds --------------------------------------------
+    thresholds:
+      selection: 0.25
+      restriction: 0.5
+      missingInformation: 0.5
+      # Low task match is recorded, never gated.
+      taskMatch: 0.35
+      skill: 0.5
+      modelRoute: 0.4
+
+    # --- swarm mode ---------------------------------------------------------
+    # With mode: swarm, a session is inert until it calls swarm_enter. The
+    # orchestrator then keeps only orchestratorTools; everything else is hidden.
+    swarm:
+      presets: [orchestrator, architect, writer, reviewer, researcher]
+      orchestratorTools:
+        - read
+        - read_image
+        - glob
+        - grep
+        - todo_write
+        - ask_user_question
+        - subagent
+        - subagent_fork
+        - workflow
+        - present
+        - skill
+        - swarm_assign
+        - swarm_enter
+        - swarm_exit
+        - systemone_ask
+        - systemone_status
+      # Persona catalog the assignment question is built from. These are the
+      # built-in five; add your own id here to route a stage to a new role.
+      personas:
+        orchestrator:
+          description: 'Decomposes a goal into delegable workstreams and integrates the results'
+          instructions: >-
+            You are the orchestrator. Decompose the stage into delegable pieces,
+            delegate one subagent per piece with a self-contained brief, verify
+            claims against the workspace, and integrate the results.
+        architect:
+          description: 'Designs systems grounded in the repository and writes design documents'
+          instructions: >-
+            You are the architect. Ground every design decision in the actual
+            repository and produce a decision-complete design document.
+        writer:
+          description: 'Writes prose and documents for a specific audience'
+          instructions: >-
+            You are the writer. Produce prose a specific reader will act on;
+            match the house style and never invent a citation or a statistic.
+        reviewer:
+          description: 'Independently validates a change and reports defects with evidence'
+          instructions: >-
+            You are the independent reviewer. Run the checks yourself, cite
+            evidence, order findings by severity, and end with a verdict.
+        researcher:
+          description: 'Gathers evidence from primary sources and reports with citations'
+          instructions: >-
+            You are the researcher. Answer from sources, not memory; separate
+            what the evidence shows, what you infer, and what remains unknown.
+
+    # --- per-preset overrides (optional) -----------------------------------
+    # Keyed by preset id. `mode`, `selection.*`, `assessment.*`, and
+    # `thresholds.*` merge over the top level; `policy` and `judge` replace the
+    # corresponding top-level value for sessions running that preset.
+    presets:
+      reviewer:
+        # Deterministic policy: no model round-trip. Paths outside the
+        # allow-list fail closed. `paths.deny` would win over `paths.allow`.
+        policy:
+          default: allow
+          tools:
+            write:
+              paths:
+                allow:
+                  - '**/samples/**'
+                  - '**/fixtures/**'
+                  - '**/*.csv'
+            edit:
+              paths:
+                allow:
+                  - '**/samples/**'
+                  - '**/fixtures/**'
+                  - '**/*.csv'
+            bash:
+              commands:
+                deny:
+                  - '(^|\s)(rm|mv|dd|truncate)\s'
+                  - '(^|\s)git\s+(commit|push|reset|clean)\s'
+        # Model-judged rule: evaluated on every gated tool call.
+        judge:
+          instructions: >-
+            The reviewer may read source, run checks, and write only fixtures
+            under samples/, fixtures/, or *.csv files. It may not modify
+            source, dependencies, or configuration.
+          boundary:
+            true: 'The call changes source, dependencies, or configuration'
+            false: 'The call only reads, runs checks, or writes a fixture file'
+
+      # Add the other role presets (orchestrator, architect, writer,
+      # researcher) the same way, each with its own taxonomy and thresholds.

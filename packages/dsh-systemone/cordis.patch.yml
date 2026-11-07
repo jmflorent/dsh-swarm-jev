@@ -1,0 +1,12 @@
+- insert:
+    - id: systemone
+      name: '@local/systemone'
+      config:
+        endpoint: 'http://127.0.0.1:8008/v1/systemone'
+        model: 'decision-model'
+        # off | shadow | enforce | swarm. Shadow computes and logs decisions without
+        # touching harness behavior. This row's defaults are intentionally
+        # plain; the deployment-specific category taxonomy and thresholds live
+        # in the profile patch override (~/.dsh/profiles/<name>/cordis.patch.yml),
+        # which is applied after every bundle layer and replaces this config.
+        mode: 'shadow'
