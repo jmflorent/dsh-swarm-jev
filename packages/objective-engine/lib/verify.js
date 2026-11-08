@@ -6,6 +6,7 @@
  * verifier reports through objective_verdict; a child that ends without a
  * verdict is recorded inconclusive.
  */
+import { runMechanicalChecks } from './checker.js'
 import { EVIDENCE_FORMAT, renderVerifierBrief } from './prompts.js'
 
 const readCollected = (handle, stream) => {
@@ -67,11 +68,14 @@ export const createVerifierWiring = ({ ctx, settings, log, dispatcher, authority
     }
   }
 
+  /** Execute the mechanical criteria in the owner's workspace. */
+  const runChecks = async ({ criteria, cwd }) => runMechanicalChecks({ ctx, criteria, cwd, settings, log })
+
   /** Start the verifier child for a requested record. */
   const startVerifier = async ({ objective, verification }) => {
     const parent = authority.agentFor(objective.owner.sessionId)
     const criteria = objective.criteria.filter((criterion) => verification.criterionIds.includes(criterion.id))
-    const prompt = renderVerifierBrief({ objective, verification, criteria, evidenceFormat: EVIDENCE_FORMAT })
+    const prompt = renderVerifierBrief({ objective, verification, criteria, checks: verification.checks, evidenceFormat: EVIDENCE_FORMAT })
     // The verifier preset must differ from the producer's; drop any candidate that matches.
     const presets = settings.verifierPresets.filter((preset) => preset !== objective.owner.presetId)
     if (presets.length === 0) return { ok: false, code: 'verifier-preset-unavailable', message: 'every configured verifier preset matches the producer preset' }
@@ -80,5 +84,5 @@ export const createVerifierWiring = ({ ctx, settings, log, dispatcher, authority
     return { ok: true, verifier: { kind: 'child', sessionId: started.childId, presetId: started.preset, parentSessionId: objective.owner.sessionId } }
   }
 
-  return { pinCommit, startVerifier }
+  return { pinCommit, runChecks, startVerifier }
 }

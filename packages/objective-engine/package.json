@@ -1,6 +1,6 @@
 {
   "name": "@local/objective-engine",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Objective/progress control plane for DeepSeek Harness: a hash-chained objective and work-item journal, admission and measured load, six budgets, event-driven wakeups with a pre-step fence, engine-started workers and verifier with commit pinning, a verifier-gated completion with human acknowledgment, a kill switch, and an advisory Mammoth classifier.",

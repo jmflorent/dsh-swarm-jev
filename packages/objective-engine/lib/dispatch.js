@@ -130,7 +130,7 @@ export const createDispatcher = ({ ctx, settings, log, onSettled }) => {
         itemId: item.id,
         parent,
         label: item.title.slice(0, 80),
-        prompt: renderWorkerBrief({ objective, item, persona, brief, instructions }),
+        prompt: renderWorkerBrief({ objective, item, persona, brief, instructions, criteria: objective.criteria.filter((criterion) => (item.link?.criterionIds ?? []).includes(criterion.id)) }),
         presets: [persona],
       }),
     /** Start the verifier child for a verification record. */

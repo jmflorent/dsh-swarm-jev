@@ -1,6 +1,6 @@
 # The objective/progress orchestrator
 
-`packages/objective-engine` (`@local/objective-engine` 0.2.0) is the control
+`packages/objective-engine` (`@local/objective-engine` 0.3.0) is the control
 plane for an orchestrator that runs **over time**: it tracks objectives against
 progress, wakes the owning session only on events, gates completion on an
 independent verifier, and bounds everything with budgets and admission limits.
@@ -25,10 +25,14 @@ The answer this kit implements:
   work, so the engine bounds in-flight items, verifier backlog, dispatch rate,
   and per-objective tokens, rounds, and wall time — not just the number of
   objectives.
-- **Completion is a gate.** A different session with a different preset, on
-  the pinned commit, must cover every criterion with evidence; judgment
-  criteria additionally need a human acknowledgment. The producer cannot grade
-  itself through any tool path.
+- **Completion is a gate.** The engine executes every `command`/`artifact`
+  criterion itself and fails verification before a verifier is started when one
+  fails; a different session with a different preset must then inspect the
+  pinned commit and approve, and judgment criteria additionally need a human
+  acknowledgment. The producer cannot grade itself through any tool path.
+- **Delivery is executed, not claimed.** See [The checker](checker.md): the
+  engine owns the exit-code truth, the verifier judges semantics, and
+  `objective_lint` warns about vacuous or silent checks before work starts.
 
 ## Three planes
 
@@ -52,8 +56,12 @@ Fields: `assignedPersona`, `assignedChild` (`kind: child|external`, session,
 preset), `evidence[]`, `report`, `state`, `attempt`, `failure`.
 
 **Verification**: `criterionIds[]`, `advisory` (subset), `commit`
-(`pinned`, `commit`, `dirty`), `verifier` (`kind: child|external`), `evidence[]`,
+(`pinned`, `commit`, `dirty`), `checker` (`mode`, `executed`), `checks[]`
+(engine-executed `command`/`artifact` results: exit code, cwd, duration, output
+bounded, `passed`), `verifier` (`kind: child|external`), `evidence[]`,
 `verdict` (`kind`, `requested`, `downgrade`, `coverage`), `ack`, `state`.
+`command` checks carry `command`, `cwd?`, `expectedExitCode`, `timeoutMs?`;
+`artifact` checks carry `path`, `sha256?`, `minBytes?` (default 1).
 
 **Wakeup**: `objectiveId`, `form`, `occurrence`, `objectiveState`, `revision`,
 `state` (`reserved`, `admitted`, `expired`, `superseded`).
@@ -130,10 +138,10 @@ touches the command journal; a forged proposal cannot create a record.
 
 - **Presets** (`dsh-personas`): `objective-manager` (plans, dispatches through
   the engine, no subagent tools) and `verifier` (read-only on source, evidence
-  only). The orchestrator preset's spawn tool gains `allowedAgentPresets` so a
+  only; the engine-executed checks are in its brief). The orchestrator preset's spawn tool gains `allowedAgentPresets` so a
   manager-driven fallback dispatch can pick a role preset.
 - **systemone**: both personas are in the default `swarm.personas` catalog; the
-  eleven `objective_*` tools and the team tools are in the default
+  twelve `objective_*` tools and the team tools are in the default
   `swarm.orchestratorTools`; the engine reaches Mammoth through the
   `systemone` service and publishes an `objectives` service for the sidebar
   panel. The example profile patch adds a `presets.verifier` policy and judge.
@@ -147,6 +155,9 @@ touches the command journal; a forged proposal cannot create a record.
 
 ## What remains (Phase 2)
 
+- Per-attempt eval rows and the per-model/task-type scoreboard (the Ringer
+  eval loop); the journal already records executed checks, but the schema and
+  routing policy belong with Phase-2 metrics.
 - Per-objective worktree isolation and a serialized merge queue (the design's
   C13/C14); today's isolation is exclusive `scope.paths` in one checkout.
 - Engine-owned schedule cadence through `dsh-schedule` (opt-in periodic event

@@ -8,6 +8,43 @@ This file tracks the repository (the bundles and their documentation), not the
 DeepSeek Harness release it runs on. See
 [Compatibility](README.md#compatibility) for the supported DSH version.
 
+## [0.3.0] — 2026-11-08
+
+The checker evolves so delivery meets executed expectations, following the
+verification lessons of the external Ringer runner. Comparison and trust model:
+[`docs/checker.md`](docs/checker.md).
+
+### Added
+
+- `packages/objective-engine` 0.3.0 — the engine executes `command` and
+  `artifact` criteria itself (`lib/checker.js`) before starting a verifier:
+  exit code/signal/timeout, cwd, duration, bounded output excerpts, artifact
+  stat/sha256/minBytes. A failing executed check returns
+  `mechanical-check-failed` with the evidence, leaves the objective active, and
+  consumes no verifier run.
+- `objective_lint` tool — lint vacuous/silent/duplicate checks, evidence-only
+  criteria, and a missing scope; `execute:true` runs the mechanical baseline
+  without creating a verification. `objective_create` also returns the lint
+  warnings.
+- Artifact criteria accept `minBytes` (default 1) in addition to `sha256`.
+- Verifier briefs carry the engine-executed results; worker briefs carry the
+  concrete checks the engine will execute during verification.
+- Checker config: `checkerExecute`, `checkerTimeoutMs`, `checkerMaxTimeoutMs`,
+  `checkerMaxOutputBytes`; `objective_status` exposes the checker block and
+  executed checks.
+
+### Changed
+
+- `objective_verify` now pins the commit, executes the checks, and only starts
+  the verifier when they pass; the verifier still cannot override a failed
+  executed check, and the engine cannot override a verifier reject.
+- The verifier preset prompt now treats the engine results as execution truth
+  while requiring independent commit/workspace inspection and semantic review;
+  an executed check catches laziness, not subtle wrongness.
+- The package suite is now twenty-one sections (deterministic checker pass/fail,
+  artifact stat/hash, lint/baseline, plus the dispatch-depth and human-actor
+  regressions).
+
 ## [0.2.0] — 2026-11-07
 
 The objective/progress orchestrator reaches Phase 1 of the design: the engine

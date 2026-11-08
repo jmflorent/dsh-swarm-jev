@@ -91,7 +91,7 @@ export const buildTools = ({ engine, authority, classifier, pump, statusParts })
       name: 'objective_create',
       description:
         'Create an objective: a body of work with checkable acceptance criteria, an owner session, a scope, and budgets. Requires a direct human message in the current turn of a top-level session (the human creates objectives; an agent-created one is only "proposed" when allowAgentProposedObjectives is on). ' +
-        'Criteria may be strings (verifier evidence) or objects {statement, check:{kind:"command"|"artifact"|"human-ack"|"evidence", command?, cwd?, expectedExitCode?, path?, sha256?, prompt?}, requiresHumanAck?}. Beyond the active limit the objective is queued.',
+        'Criteria may be strings (verifier evidence) or objects {statement, check:{kind:"command"|"artifact"|"human-ack"|"evidence", command?, cwd?, expectedExitCode?, timeoutMs?, path?, sha256?, minBytes?, prompt?, hint?}, requiresHumanAck?}. command and artifact criteria are executed deterministically by the engine at verification; the result may include non-blocking lint warnings (vacuous/silent checks, no mechanical check, no scope). Beyond the active limit the objective is queued.',
       parameters: {
         type: 'object',
         properties: {
@@ -177,7 +177,7 @@ export const buildTools = ({ engine, authority, classifier, pump, statusParts })
     tool({
       name: 'objective_verify',
       description:
-        'Owner (or human): request independent verification of an active objective. Requires every linked work order to be accepted (or force:true). The engine pins the commit, starts a verifier child with a distinct preset, and the verifier answers through objective_verdict. A subset of criterionIds makes an advisory verification that can never complete the objective.',
+        'Owner (or human): request verification of an active objective. Requires every linked work order to be accepted (or force:true). The engine pins the commit, executes every command/artifact criterion itself, and only then starts a verifier child with a distinct preset for independent judgment; the verifier answers through objective_verdict. If a mechanical check fails, the result is code "mechanical-check-failed" with the exact exit/output evidence and no verifier run is consumed. A subset of criterionIds makes an advisory verification that can never complete the objective.',
       parameters: {
         type: 'object',
         properties: {
@@ -189,6 +189,20 @@ export const buildTools = ({ engine, authority, classifier, pump, statusParts })
         required: ['objectiveId'],
       },
       execute: (args, exec) => engine.verify(args, actorOf(exec)),
+    }),
+    tool({
+      name: 'objective_lint',
+      description:
+        'Owner (or human): lint the check quality of an objective (or of a proposed criteria array) without changing state. Findings flag vacuous checks, checks that fail silently, duplicate commands, evidence-only criteria, and a missing write scope. execute:true additionally runs every command/artifact check in the objective owner\'s workspace (the pre-work baseline) and returns the executed results. No verification record or budget is created.',
+      parameters: {
+        type: 'object',
+        properties: {
+          objectiveId: str('Objective to lint.'),
+          criteria: { ...CRITERIA_SCHEMA, description: 'Criteria to lint when no objectiveId is given (pre-create check).' },
+          execute: { type: 'boolean', description: 'Run the mechanical checks against the current workspace (baseline).' },
+        },
+      },
+      execute: (args, exec) => engine.lint(args, actorOf(exec)),
     }),
     tool({
       name: 'objective_verdict',

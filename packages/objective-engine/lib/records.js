@@ -131,7 +131,12 @@ export const normalizeCriterion = (input, index) => {
   } else if (kind === 'artifact') {
     const path = clampText(rawCheck.path, 1000)
     if (path === '') return { error: `criterion ${id}: an artifact check needs a path` }
-    check = { kind, path, ...(/^[0-9a-f]{64}$/i.test(String(rawCheck.sha256 ?? '')) ? { sha256: String(rawCheck.sha256).toLowerCase() } : {}) }
+    check = {
+      kind,
+      path,
+      ...(/^[0-9a-f]{64}$/i.test(String(rawCheck.sha256 ?? '')) ? { sha256: String(rawCheck.sha256).toLowerCase() } : {}),
+      ...(rawCheck.minBytes === undefined ? {} : { minBytes: nonNegativeInt(rawCheck.minBytes, 1, 1_000_000_000) }),
+    }
   } else if (kind === 'human-ack') {
     check = { kind, prompt: clampText(rawCheck.prompt, 1000) || statement }
   } else {

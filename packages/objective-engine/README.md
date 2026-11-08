@@ -9,9 +9,10 @@ calling itself:
 - **progress** is a work order (dispatchable), a status report (evidence), or a
   heartbeat (liveness only), recorded against an objective;
 - the engine journals every mutation, admits work within measured limits,
-  starts workers and the verifier itself, gates completion on an independent
-  verdict (plus a human acknowledgment for judgment criteria), and wakes the
-  owning orchestrator only on events.
+  starts workers and the verifier itself, **executes the command/artifact
+  criteria itself**, gates completion on both those executed checks and an
+  independent verifier verdict (plus a human acknowledgment for judgment
+  criteria), and wakes the owning orchestrator only on events.
 
 It never does stage work. The session it wakes is the orchestrator: it
 decomposes, asks `swarm_assign` for personas, dispatches through the engine,
@@ -56,7 +57,8 @@ manager objective_dispatch {itemId, persona, brief}        # engine starts the c
 child   objective_report {objectiveId, itemId, text, evidence:[…]}
 engine  child settles → WAKEUP → manager
 manager objective_plan {action:"accept", itemId}           # producer cannot accept its own work
-manager objective_verify {objectiveId}                     # engine pins HEAD, starts the verifier child
+manager objective_lint {objectiveId, execute:true}         # optional baseline before work
+manager objective_verify {objectiveId}                     # engine pins HEAD, executes the checks, then starts the verifier
 verifier objective_verdict {verificationId, verdict, commit, workspaceClean, evidence:[…]}
 engine  approve → completed (mechanical) | awaiting-human (judgment criteria)
 human   objective_ack {objectiveId, decision:"ack"}        # completes; "send-back" pauses
@@ -65,6 +67,14 @@ human   objective_ack {objectiveId, decision:"ack"}        # completes; "send-ba
 Every arrow after `objective_create` is an event: a child settling, the owner
 going idle, a verdict, or the coarse sweep timer. There is no self-calling turn
 and no background model loop; an idle engine spends nothing.
+
+**The checker is deterministic.** `command` and `artifact` criteria are run by
+the engine in the owner's workspace; a failing check stops verification before
+any verifier run and returns the exit/output evidence. Only a passing preflight
+starts the verifier, which still inspects the pinned commit and the semantics.
+`objective_lint` reports weak checks and can run the baseline. The rationale,
+the comparison with the external Ringer runner, and the trust model are in
+[`docs/checker.md`](../../docs/checker.md).
 
 ## Records and states
 
@@ -83,22 +93,25 @@ covers a strict subset of the criteria is **advisory** and can never complete
 the objective.
 
 **Criteria** — `{ id, statement, check, requiresHumanAck }` with
-`check.kind` ∈ `command` (`command`, `cwd?`, `expectedExitCode`), `artifact`
-(`path`, `sha256?`), `human-ack` (`prompt`), `evidence` (a string criterion;
-the verifier cites what it ran or read). A `human-ack` criterion, or any
-criterion with `requiresHumanAck: true`, needs `objective_ack` after the
-verifier's approval. Purely mechanical objectives complete on the approval.
+`check.kind` ∈ `command` (`command`, `cwd?`, `expectedExitCode`, `timeoutMs?`),
+`artifact` (`path`, `sha256?`, `minBytes?`), `human-ack` (`prompt`), `evidence`
+(a string criterion; the verifier cites what it ran or read). The engine
+executes `command`/`artifact` criteria; `evidence`/`human-ack` are judgment
+criteria. A `human-ack` criterion, or any criterion with
+`requiresHumanAck: true`, needs `objective_ack` after the verifier's approval.
+Purely mechanical objectives complete on the approval.
 
 ## Tools
 
 | Tool | Who | Purpose |
 |---|---|---|
-| `objective_create` | human (direct human message, top-level session) | Create an objective: statement, 1–12 criteria, priority, scope, budget. Beyond the active cap it queues. With `allowAgentProposedObjectives` an agent creates a `proposed` record a human must approve. |
+| `objective_create` | human (direct human message, top-level session) | Create an objective: statement, 1–12 criteria, priority, scope, budget. Returns non-blocking check-lint warnings. Beyond the active cap it queues. With `allowAgentProposedObjectives` an agent creates a `proposed` record a human must approve. |
 | `objective_status` | anyone | Engine mode, counts, limits, measured load, classifier health, wakeups, recent events, and the redacted records (`objectiveId` narrows). |
 | `objective_plan` | owner | `add` a work order / status report / heartbeat; `accept`, `reject`, `cancel` an item. |
 | `objective_dispatch` | owner | Start a worker child for a queued work order with the persona `swarm_assign` returned. Provenance is recorded by the engine. |
 | `objective_report` | assigned child (item) / owner (objective level) | File evidence or a heartbeat. Reports never complete anything. |
-| `objective_verify` | owner or human | Request verification once every linked work order is accepted. Pins the commit, starts the verifier child with a distinct preset. |
+| `objective_verify` | owner or human | Request verification once every linked work order is accepted. Pins the commit, **executes every command/artifact criterion**, and starts the verifier child with a distinct preset only when they pass; a failing check returns `mechanical-check-failed` with its output and consumes no verifier run. |
+| `objective_lint` | owner or human | Lint an objective's checks (or a proposed criteria array); `execute:true` runs the mechanical baseline without creating a verification. |
 | `objective_verdict` | the verifier child | Per-criterion evidence and `approve` / `reject` / `inconclusive`. Producers are rejected; missing evidence, a wrong commit, or a dirty workspace downgrade to inconclusive. |
 | `objective_ack` | human | `ack` completes an approved objective with judgment criteria; `send-back` pauses it with a note. |
 | `objective_control` | human | `approve`, `pause`, `resume`, `cancel`, `edit` (criteria edits supersede verifications), `budget-raise`, `reset-attempts`. |
@@ -185,6 +198,9 @@ for every field. The ones you are most likely to change:
 | `maxRoundsPerObjective` | 12 | Admitted engine prompts per objective |
 | `progressIntervalMs` / `minWakeGapMs` / `tickMs` | 45 s / 8 s / 20 s | Driver cadence |
 | `verifierPresets` | `[verifier, reviewer]` | Presets tried for the verifier child (must differ from the producer's) |
+| `checkerExecute` | `true` | Execute command/artifact criteria in the engine before the verifier; `false` falls back to verifier-run evidence |
+| `checkerTimeoutMs` / `checkerMaxTimeoutMs` | 120 s / 1 h | Per-check default and ceiling |
+| `checkerMaxOutputBytes` | 64 KiB | Bounded stdout/stderr captured per check |
 | `allowAgentProposedObjectives` | `false` | Agent-created objectives are `proposed` until a human approves |
 | `classification.*` | design thresholds | Advisory classifier thresholds, breaker, auto-tagging |
 
@@ -195,11 +211,15 @@ cd packages/objective-engine
 node test/run.mjs        # or: pnpm test
 ```
 
-Sixteen sections over a fake Cordis context: boot/lock/sentinel, torn tail and
+Twenty-one sections over a fake Cordis context: boot/lock/sentinel, torn tail and
 hash chain, record completeness and human authority, admission and queue
 promotion, agent-proposed objectives, the full completion gate with dispatch
 provenance and commit pinning, mechanical completion and send-back, budgets,
 restart reconstruction and replay determinism, wakeups and the pre-step fence,
 coalescing and backpressure, the kill switch, the advisory classifier with the
 outage policy and the replay paradox, the decision-rule table, fallback paths,
-and tool wiring against the registry contract (no external dependency needed).
+the deterministic checker (executed command pass/fail, no verifier run on a
+failed preflight, artifact stat/hash, lint and baseline), the verification-gate
+regressions (authority/readiness/coverage/clean pin before any check runs), the
+dispatch-depth and human-actor regressions, and tool wiring against the registry contract (no
+external dependency needed).

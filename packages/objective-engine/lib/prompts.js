@@ -3,6 +3,7 @@
  * block each, JSON-quoted objective text, and an idempotency header so a
  * duplicate delivery is detectable by the model and by the pre-step fence.
  */
+import { describeCheckFailures, summarizeChecks } from './checker.js'
 import { TEMPLATE_VERSION } from './records.js'
 
 const quote = (text, max = 400) => JSON.stringify(text.length > max ? `${text.slice(0, max)}…` : text)
@@ -60,6 +61,7 @@ export const renderVerdict = ({ objective, wake, verification }) => {
     `Verification ${verification.id}${verification.advisory ? ' (advisory, subset of criteria)' : ''}: verdict=${verdict.kind}${verdict.requested && verdict.requested !== verdict.kind ? ` (requested ${verdict.requested}, downgraded: ${verdict.downgrade})` : ''}`,
     verdict.reason ? `Reason: ${quote(verdict.reason, 600)}` : '',
     verdict.coverage ? `Covered criteria: ${verdict.coverage.covered.join(',') || 'none'}; uncovered: ${verdict.coverage.uncovered.join(',') || 'none'}` : '',
+    describeCheckFailures(verification.checks) === '' ? '' : `Engine check failures:\n${describeCheckFailures(verification.checks)}`,
   ].filter((line) => line !== '')
   if (objective.state === 'completed') lines.push('The objective is complete. Write the closing message: what was delivered, how it was verified, where the results are. Do not call objective tools for it again.')
   else if (objective.state === 'awaiting-human') lines.push('Approved, but judgment criteria need a human acknowledgment. Ask the human in this session (ask_user_question) to confirm each † criterion; the human records it with objective_ack. You cannot acknowledge on their behalf.')
@@ -106,13 +108,22 @@ export const renderEnginePaused = ({ reason }) => [
 ].join('\n')
 
 /** Brief wrapper for a dispatched worker child. */
-export const renderWorkerBrief = ({ objective, item, persona, brief, instructions }) => [
+const checkLine = (criterion) => {
+  const check = criterion.check
+  if (check.kind === 'command') return `${criterion.id}: command \`${quote(check.command, 240)}\` must exit ${check.expectedExitCode}`
+  if (check.kind === 'artifact') return `${criterion.id}: artifact ${quote(check.path, 200)} must exist${check.sha256 === undefined ? '' : ` with sha256 ${check.sha256}`}${check.minBytes === undefined ? '' : ` (at least ${check.minBytes} bytes)`}`
+  if (check.kind === 'human-ack') return `${criterion.id}: human judgment — ${quote(check.prompt, 200)}`
+  return `${criterion.id}: evidence — ${quote(check.hint ?? criterion.statement, 200)}`
+}
+
+export const renderWorkerBrief = ({ objective, item, persona, brief, instructions, criteria }) => [
   `[OBJECTIVE ENGINE WORK ORDER item=${item.id} objective=${objective.id} attempt=${item.attempt} persona=${persona}]`,
   instructions ? `Persona: ${instructions}` : '',
   `Objective (context only): ${quote(objective.statement)}`,
   `Work order: ${quote(item.title, 300)}`,
   item.detail ? `Detail: ${item.detail}` : '',
   `Acceptance: ${item.acceptance.map((entry, index) => `${index + 1}. ${entry}`).join(' ')}`,
+  ...(criteria === undefined ? [] : [`Checks the engine will execute at verification (deliver these): ${criteria.map(checkLine).join('; ')}`]),
   '',
   brief,
   '',
@@ -120,7 +131,7 @@ export const renderWorkerBrief = ({ objective, item, persona, brief, instruction
 ].filter((line) => line !== undefined).join('\n')
 
 /** Brief for the engine-started verifier child. */
-export const renderVerifierBrief = ({ objective, verification, criteria, evidenceFormat }) => [
+export const renderVerifierBrief = ({ objective, verification, criteria, checks, evidenceFormat }) => [
   `[OBJECTIVE ENGINE VERIFICATION verification=${verification.id} objective=${objective.id} criteriaVersion=${verification.criteriaVersion}]`,
   'You are an independent verifier. You did not produce this work and you must not fix it. Read the actual state of the workspace and run the checks yourself.',
   `Objective: ${quote(objective.statement)}`,
@@ -128,9 +139,15 @@ export const renderVerifierBrief = ({ objective, verification, criteria, evidenc
     ? `Pinned commit: ${verification.commit.commit}. Run \`git rev-parse HEAD\` and \`git status --porcelain\` first; if HEAD differs from the pinned commit or the workspace is dirty, report inconclusive with that reason.`
     : 'No commit is pinned for this objective (not a git workspace or pinning unavailable): verify the current workspace state and say so.',
   `Criteria to verify: ${criteria.map((c) => `${c.id}: ${quote(c.statement, 300)} [check=${c.check.kind}${c.check.command ? ` command=${quote(c.check.command, 200)} expectedExitCode=${c.check.expectedExitCode}` : ''}${c.check.path ? ` path=${c.check.path}` : ''}${c.requiresHumanAck ? ' human-ack: report your assessment; a human decides' : ''}]`).join('; ')}`,
+  ...(Array.isArray(checks?.results) && checks.results.length > 0
+    ? [
+        'The engine pre-executed the mechanical checks from the owner workspace. Treat the recorded exit codes as authoritative execution evidence, but independently confirm the pinned commit, the workspace state, and whether the checks actually prove the stated expectation:',
+        summarizeChecks(checks).map((result) => `${result.criterionId} ${result.kind} ${result.passed ? 'PASS' : 'FAIL'}${result.kind === 'command' ? ` exit=${result.exitCode}` : ''}${result.error ? ` (${result.error})` : ''}`).join('; '),
+      ]
+    : ['No mechanical check was pre-executed by the engine; run every command/artifact check yourself.']),
   `Evidence format: ${evidenceFormat}`,
   `Finish with exactly one objective_verdict {verificationId:"${verification.id}", verdict:"approve"|"reject"|"inconclusive", commit:<git rev-parse HEAD or omit>, workspaceClean:true|false, reason, evidence:[…one entry per criterion…]}. Approve only when every mechanical criterion passed at the pinned commit; reject with the failing evidence; inconclusive when you could not establish either. Write nothing to source files.`,
 ].join('\n')
 
 export const EVIDENCE_FORMAT =
-  '{criterionId, kind:"command", command, cwd?, exitCode, stdoutExcerpt?} for command checks; {criterionId, kind:"artifact", path, sha256} for artifacts; {criterionId, kind:"inspection", note} for evidence checks; add failed:true on a failing entry.'
+  '{criterionId, kind:"command", command, cwd?, exitCode, stdoutExcerpt?} for command checks; {criterionId, kind:"artifact", path, sha256} for artifacts; {criterionId, kind:"inspection", note} for evidence checks; add failed:true on a failing entry. Mechanical criteria are already executed by the engine; your evidence must still cover every criterion you verify.'

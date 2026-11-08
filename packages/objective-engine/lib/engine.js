@@ -5,7 +5,8 @@
  * fake context in tests.
  */
 import { applyEvent, deserializeState, emptyState, foldEvents, serializeState } from './fold.js'
-import { COUNTED_ACTIVE, clampText, clone, digest, iso } from './records.js'
+import { COUNTED_ACTIVE, clampText, clone, digest, iso, normalizeCriteria } from './records.js'
+import { describeCheckFailures, lintCriteria, summarizeChecks } from './checker.js'
 import { resolveSettings } from './admission.js'
 import { openStore } from './store.js'
 import {
@@ -24,6 +25,7 @@ import {
   pauseEngine,
   promoteQueued,
   reconcileAfterRestart,
+  prepareVerification,
   recordVerdict,
   reportItem,
   requestVerification,
@@ -182,7 +184,10 @@ export const createEngine = ({ config, settings: provided, dataDir, now = Date.n
     create: wrap((input, actor) => {
       const result = createObjective(core, input, actor)
       if (result.ok && result.objective.state === 'active') kick(actor.sessionId)
-      return result
+      if (!result.ok) return result
+      const record = state.objectives.get(result.objective.id)
+      const warnings = record === undefined ? [] : lintCriteria(record.criteria, { scope: record.scope })
+      return warnings.length === 0 ? result : { ...result, warnings }
     }),
     control: wrap((input, actor) => {
       if (actor?.human !== true) return fail('unauthorized', 'objective_control requires a direct human message in the current turn of a top-level session')
@@ -233,20 +238,74 @@ export const createEngine = ({ config, settings: provided, dataDir, now = Date.n
       if (objective === undefined) return fail('objective-not-found', 'unknown objective')
       const parent = authority?.agentFor(objective.owner.sessionId) ?? actor?.agent
       const pin = verifier === undefined ? { commit: null, pinned: false, reason: 'pinning-unavailable' } : await verifier.pinCommit(parent)
-      const requested = requestVerification(core, input, actor, pin)
+      // Authority/readiness/budget gate FIRST: never execute criterion
+      // commands for a request that would be rejected.
+      const prepared = prepareVerification(core, input, actor, pin)
+      if (!prepared.ok) return prepared
+      // Execute the mechanical criteria before spending a verifier child. The
+      // engine, not the verifier, owns the exit-code truth for delivery.
+      const runnable = objective.criteria.filter((criterion) => prepared.requested.includes(criterion.id))
+      const checks = verifier?.runChecks === undefined ? undefined : await verifier.runChecks({ criteria: runnable, cwd: pin?.cwd })
+      const checkerNote =
+        checks !== undefined && checks.mode !== 'engine' && runnable.some((criterion) => criterion.check.kind === 'command' || criterion.check.kind === 'artifact')
+          ? `deterministic checker unavailable (${checks.reason ?? 'no subprocess service'}); verifier-run evidence will be used`
+          : undefined
+      if (checks?.mode === 'engine' && checks.failures.length > 0) {
+        const failed = summarizeChecks(checks).filter((check) => check.passed !== true)
+        try {
+          core.reject(actor, 'mechanical-check-failed', {
+            commit: pin?.commit ?? null,
+            failed,
+            output: describeCheckFailures(checks).slice(0, 2000),
+          })
+        } catch {
+          /* the rejection record is best effort */
+        }
+        return fail('mechanical-check-failed', `executed checks failed: ${failed.map((check) => check.criterionId).join(', ')}`, {
+          checks: failed,
+          commit: pin?.commit ?? null,
+          objective: objectiveView(state, objective),
+        })
+      }
+      const requested = requestVerification(core, input, actor, pin, checks)
       if (!requested.ok) return requested
       const record = state.verifications.get(requested.verification.id)
       if (verifier === undefined || dispatcher === undefined || !dispatcher.available()) {
         const bound = bindVerifier(core, record, { kind: 'external' })
-        return { ...requested, verification: clone(bound), note: 'no subagent service: a different session (not the owner, different preset) must call objective_verdict with evidence' }
+        return { ...requested, verification: clone(bound), ...(checks === undefined ? {} : { checks: summarizeChecks(checks) }), note: `${checkerNote === undefined ? '' : `${checkerNote}. `}no subagent service: a different session (not the owner, different preset) must call objective_verdict with evidence` }
       }
       const started = await verifier.startVerifier({ objective: state.objectives.get(objective.id), verification: record })
       if (!started.ok) {
         const bound = bindVerifier(core, record, { kind: 'external', startFailure: started.code })
-        return { ...requested, verification: clone(bound), note: `verifier child could not be started (${started.code}); an independent session must call objective_verdict` }
+        return { ...requested, verification: clone(bound), ...(checks === undefined ? {} : { checks: summarizeChecks(checks) }), note: `${checkerNote === undefined ? '' : `${checkerNote}. `}verifier child could not be started (${started.code}); an independent session must call objective_verdict` }
       }
       const bound = bindVerifier(core, record, started.verifier)
-      return { ...requested, verification: clone(bound), verifierSessionId: started.verifier.sessionId }
+      return { ...requested, verification: clone(bound), ...(checks === undefined ? {} : { checks: summarizeChecks(checks) }), ...(checkerNote === undefined ? {} : { note: checkerNote }), verifierSessionId: started.verifier.sessionId }
+    }),
+    lint: wrapAsync(async (input, actor) => {
+      const objectiveId = clampText(input?.objectiveId, 80)
+      const objective = objectiveId === '' ? undefined : state.objectives.get(objectiveId)
+      if (objectiveId !== '' && objective === undefined) return fail('objective-not-found', 'unknown objective')
+      if (objective !== undefined && actor.sessionId !== objective.owner.sessionId && actor.human !== true) {
+        return fail('unauthorized', 'only the owner session (or a human) may lint an objective')
+      }
+      let criteria
+      if (objective !== undefined) criteria = objective.criteria
+      else {
+        const normalized = normalizeCriteria(input?.criteria)
+        if (normalized.error !== undefined) return fail(normalized.code, normalized.error)
+        criteria = normalized.criteria
+      }
+      const findings = lintCriteria(criteria, { scope: objective?.scope })
+      let checks
+      if (input?.execute === true) {
+        if (objective === undefined) return fail('record-incomplete', 'execute:true requires an objectiveId so the engine knows which workspace to run checks in')
+        const parent = authority?.agentFor(objective.owner.sessionId) ?? actor?.agent
+        const pin = verifier === undefined ? { commit: null, pinned: false, cwd: undefined } : await verifier.pinCommit(parent)
+        if (verifier?.runChecks === undefined) return { ok: true, objectiveId: objective.id, findings, executed: false, note: 'the deterministic checker is not available (no subprocess service)' }
+        checks = await verifier.runChecks({ criteria, cwd: pin?.cwd })
+      }
+      return { ok: true, ...(objective === undefined ? {} : { objectiveId: objective.id }), findings, ...(checks === undefined ? {} : { checks: summarizeChecks(checks), executed: checks.mode === 'engine', mode: checks.mode }) }
     }),
     verdict: wrap((input, actor) => {
       const result = recordVerdict(core, input, actor)

@@ -337,12 +337,18 @@
     minWakeGapMs: 8000                # minimum gap between prompts to one session
     tickMs: 20000                     # sweep resolution
 
-    # --- dispatch and verification -----------------------------------------
+    # --- dispatch, verification, and deterministic checks ------------------
     subagentProvider: spawn           # provider name registered by dsh-subagent-spawn-in-process
-    workerMaxDepth: 0                 # workers cannot delegate further
+    workerMaxDepth: 1                 # extra delegation levels below the owner
     verifierPresets: [verifier, reviewer]   # first that loads and differs from the producer
     requireCommitPin: false           # true: objective_verify fails without a git HEAD
     snapshotEvery: 128
+    # The engine executes command/artifact criteria itself; a failing check
+    # stops verification before any verifier child is started.
+    checkerExecute: true              # false: fall back to verifier-run evidence
+    checkerTimeoutMs: 120000          # default per-check timeout
+    checkerMaxTimeoutMs: 3600000      # ceiling for a criterion's timeoutMs
+    checkerMaxOutputBytes: 65536      # bounded captured stdout/stderr
 
     # --- advisory classifier (never in the control path) -------------------
     classificationCallsPerHour: 60

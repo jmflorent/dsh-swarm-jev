@@ -240,7 +240,9 @@ repository's bundle already carries the fields.
 | Node version error | DSH's bundled Node is older than 24 | Update DSH; the bundle expects the DSH-provided Node |
 | Client package fails to build | The Web client build step failed; host half still works | Restart DSH; check the app log; if persistent, use the profile patch and remove the client half only if you fork |
 | `EACCES` on profile files | Profile directory permissions | Fix ownership/permissions on `~/.dsh/profiles/<name>` |
-| Bundle row names an uninstalled package | A leftover profile row override after removal | Remove/comment the row in the profile patch |
+| `objective_verify` returns `mechanical-check-failed` | A command/artifact criterion failed when the engine executed it; no verifier ran | Fix the delivery, then either retry `objective_verify` or plan a new work order. The result carries the failing criterion, exit code, and output excerpt; `objective_lint {objectiveId, execute:true}` reruns the baseline. |
+| Checks seem not to execute | `checkerExecute: false`, or the host has no `subprocess` service | Command/artifact criteria then fall back to verifier-run evidence; set `checkerExecute: true` and check `objective_status` for the checker block. |
+| | Bundle row names an uninstalled package | A leftover profile row override after removal | Remove/comment the row in the profile patch |
 
 The reliable reset is: stop DSH, back up the profile's `cordis.patch.yml`,
 restore a known-good version, restart, and re-apply changes one at a time.

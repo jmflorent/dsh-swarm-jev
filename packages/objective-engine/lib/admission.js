@@ -55,6 +55,13 @@ export const DEFAULT_CLASSIFICATION = Object.freeze({
   maxActiveObjectivesInPrompt: 5,
 })
 
+export const DEFAULT_CHECKER = Object.freeze({
+  execute: true,
+  timeoutMs: 120_000,
+  maxTimeoutMs: 3_600_000,
+  maxOutputBytes: 64 * 1024,
+})
+
 /** Resolve the row config into validated settings with defaults. */
 export const resolveSettings = (config = {}) => {
   const limits = {}
@@ -63,6 +70,12 @@ export const resolveSettings = (config = {}) => {
   }
   const timing = {}
   for (const [name, fallback] of Object.entries(DEFAULT_TIMING)) timing[name] = positiveInt(config[name], fallback, 86_400_000)
+  const checker = {
+    execute: config.checkerExecute !== false,
+    timeoutMs: positiveInt(config.checkerTimeoutMs, DEFAULT_CHECKER.timeoutMs, DEFAULT_CHECKER.maxTimeoutMs),
+    maxTimeoutMs: positiveInt(config.checkerMaxTimeoutMs, DEFAULT_CHECKER.maxTimeoutMs, 86_400_000),
+    maxOutputBytes: positiveInt(config.checkerMaxOutputBytes, DEFAULT_CHECKER.maxOutputBytes, 1_048_576),
+  }
   const classification = {}
   const rawClassification = config.classification ?? {}
   for (const [name, fallback] of Object.entries(DEFAULT_CLASSIFICATION)) {
@@ -74,6 +87,7 @@ export const resolveSettings = (config = {}) => {
     enabled: config.enabled !== false,
     limits,
     timing,
+    checker,
     classification,
     allowAgentProposedObjectives: config.allowAgentProposedObjectives === true,
     requireHumanAuthority: config.requireHumanAuthority !== false,

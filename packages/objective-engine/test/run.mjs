@@ -4,6 +4,7 @@
  * journal durability, and tool wiring — all against a fake Cordis context.
  */
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { makeClock, makeCtx } from './fake-ctx.mjs'
@@ -757,6 +758,7 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
     'objective_dispatch',
     'objective_report',
     'objective_verify',
+    'objective_lint',
     'objective_verdict',
     'objective_ack',
     'objective_control',
@@ -805,7 +807,7 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
     console.log('  (parameter schemas validated with @deepseek-ai/dsh-tools)')
   }
   h.close()
-  section('eleven tools registered and callable through the fake execution context')
+  section('twelve tools registered and callable through the fake execution context')
 }
 
 // ---------------------------------------------------------------------------
@@ -847,6 +849,264 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   assert.equal(ctx.activations[1].request.maxDepth, 2)
   h.close()
   section('child-depth cap is absolute: a root owner §1, a nested owner §2; a human owner dispatch folds')
+}
+
+// ---------------------------------------------------------------------------
+// 11. Deterministic checks: the engine executes delivery expectations
+// ---------------------------------------------------------------------------
+{
+  const ctx = makeCtx({ commands: { 'make check': { exitCode: 0, stdout: 'ok\n' } } })
+  const clock = makeClock()
+  const h = compose({ ctx, clock })
+  const owner = ctx.makeAgent({ preset: 'orchestrator' })
+  humanSystem(h, owner, { action: 'resume' })
+  const created = createAsHuman(h, owner, {
+    statement: 'Checker executes the command criterion',
+    criteria: [{ statement: 'the command passes', check: { kind: 'command', command: 'make check', expectedExitCode: 0 } }],
+    scope: { kind: 'paths', paths: ['src'] },
+  })
+  assert.equal(created.ok, true)
+  assert.equal(created.warnings, undefined, 'a proper check produces no lint warnings')
+  const planned = h.engine.plan({ objectiveId: created.objective.id, title: 'deliver', acceptance: ['built'], criterionIds: ['c1'] }, h.actor(owner))
+  assert.equal(planned.ok, true)
+  const dispatched = await h.engine.dispatch({ itemId: planned.item.id, persona: 'architect', brief: 'build it' }, h.actor(owner))
+  assert.equal(dispatched.ok, true)
+  const child = ctx.agents.get(dispatched.childSessionId)
+  assert.equal(h.engine.report({ objectiveId: created.objective.id, itemId: planned.item.id, text: 'done', evidence: [{ kind: 'command', command: 'make check', exitCode: 0 }] }, h.actor(child)).ok, true)
+  assert.equal(h.engine.plan({ action: 'accept', itemId: planned.item.id }, h.actor(owner)).ok, true)
+  const requested = await h.engine.verify({ objectiveId: created.objective.id }, h.actor(owner))
+  assert.equal(requested.ok, true)
+  assert.equal(requested.verification.checker.mode, 'engine')
+  assert.equal(requested.verification.checks.length, 1)
+  assert.equal(requested.verification.checks[0].executedBy, 'engine')
+  assert.equal(requested.verification.checks[0].exitCode, 0)
+  assert.equal(requested.checks[0].passed, true)
+  const verifier = ctx.agents.get(requested.verifierSessionId)
+  const verdict = h.engine.verdict(
+    {
+      verificationId: requested.verification.id,
+      verdict: 'approve',
+      commit: 'a'.repeat(40),
+      workspaceClean: true,
+      evidence: [{ criterionId: 'c1', kind: 'command', command: 'make check', exitCode: 0 }],
+    },
+    h.actor(verifier),
+  )
+  assert.equal(verdict.ok, true)
+  assert.equal(verdict.objective.state, 'completed')
+  h.close()
+  section('deterministic checker executes command criteria and completion requires them')
+}
+
+// A failing executed check stops verification before any verifier run and
+// returns the failure context; the objective stays active for a retry.
+{
+  const ctx = makeCtx({ commands: { 'make check': { exitCode: 3, stdout: 'FAIL: missing artifact\n' } } })
+  const clock = makeClock()
+  const h = compose({ ctx, clock })
+  const owner = ctx.makeAgent({ preset: 'orchestrator' })
+  humanSystem(h, owner, { action: 'resume' })
+  const created = createAsHuman(h, owner, {
+    statement: 'Checker rejects a failing command',
+    criteria: [{ statement: 'the command passes', check: { kind: 'command', command: 'make check', expectedExitCode: 0 } }],
+  })
+  const planned = h.engine.plan({ objectiveId: created.objective.id, title: 'deliver', acceptance: ['built'], criterionIds: ['c1'] }, h.actor(owner))
+  const dispatched = await h.engine.dispatch({ itemId: planned.item.id, persona: 'architect', brief: 'build it' }, h.actor(owner))
+  const child = ctx.agents.get(dispatched.childSessionId)
+  h.engine.report({ objectiveId: created.objective.id, itemId: planned.item.id, text: 'done', evidence: [{ kind: 'command', command: 'make check', exitCode: 0 }] }, h.actor(child))
+  h.engine.plan({ action: 'accept', itemId: planned.item.id }, h.actor(owner))
+  const activationsBefore = ctx.activations.length
+  const rejected = await h.engine.verify({ objectiveId: created.objective.id }, h.actor(owner))
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.code, 'mechanical-check-failed')
+  assert.equal(rejected.checks[0].exitCode, 3)
+  assert.match(rejected.message, /executed checks failed: c1/)
+  assert.equal(ctx.activations.length, activationsBefore, 'no verifier child is started for a failed executed check')
+  assert.equal(h.engine.state.verifications.size, 0, 'no verification record is created for a failed preflight')
+  assert.equal(objective(h, created.objective.id).state, 'active')
+  assert.equal(h.engine.state.rejections.at(-1).code, 'mechanical-check-failed')
+  h.close()
+  section('failed executed checks stop verification with exit/output evidence and no verifier run')
+}
+
+// Artifact criteria are stat/hash checked by the engine.
+{
+  const dir = tempDir()
+  const path = join(dir, 'deliverable.txt')
+  writeFileSync(path, 'delivered\n')
+  const sha = createHash('sha256').update('delivered\n').digest('hex')
+  const ctx = makeCtx()
+  const clock = makeClock()
+  const h = compose({ ctx, clock })
+  const owner = ctx.makeAgent({ preset: 'orchestrator' })
+  humanSystem(h, owner, { action: 'resume' })
+  const created = createAsHuman(h, owner, {
+    statement: 'Artifact exists and is non-empty',
+    criteria: [{ statement: 'deliverable', check: { kind: 'artifact', path, sha256: sha, minBytes: 1 } }],
+  })
+  const planned = h.engine.plan({ objectiveId: created.objective.id, title: 'write', acceptance: ['file'], criterionIds: ['c1'] }, h.actor(owner))
+  const dispatched = await h.engine.dispatch({ itemId: planned.item.id, persona: 'writer', brief: 'write it' }, h.actor(owner))
+  const child = ctx.agents.get(dispatched.childSessionId)
+  h.engine.report({ objectiveId: created.objective.id, itemId: planned.item.id, text: 'written', evidence: [{ kind: 'artifact', path, sha256: sha }] }, h.actor(child))
+  h.engine.plan({ action: 'accept', itemId: planned.item.id }, h.actor(owner))
+  const requested = await h.engine.verify({ objectiveId: created.objective.id }, h.actor(owner))
+  assert.equal(requested.ok, true)
+  assert.equal(requested.verification.checks[0].kind, 'artifact')
+  assert.equal(requested.verification.checks[0].sha256, sha)
+  assert.equal(requested.verification.checks[0].passed, true)
+  h.close()
+
+  // The same criterion against a missing file fails in the preflight.
+  const missingCtx = makeCtx()
+  const missingClock = makeClock()
+  const m = compose({ ctx: missingCtx, clock: missingClock })
+  const mOwner = missingCtx.makeAgent({ preset: 'orchestrator' })
+  humanSystem(m, mOwner, { action: 'resume' })
+  const missing = createAsHuman(m, mOwner, {
+    statement: 'Missing artifact fails',
+    criteria: [{ statement: 'missing artifact', check: { kind: 'artifact', path: join(dir, 'absent.txt') } }],
+  })
+  const mPlan = m.engine.plan({ objectiveId: missing.objective.id, title: 'write', acceptance: ['file'], criterionIds: ['c1'] }, m.actor(mOwner))
+  const mDispatch = await m.engine.dispatch({ itemId: mPlan.item.id, persona: 'writer', brief: 'write it' }, m.actor(mOwner))
+  const mChild = missingCtx.agents.get(mDispatch.childSessionId)
+  m.engine.report({ objectiveId: missing.objective.id, itemId: mPlan.item.id, text: 'written' }, m.actor(mChild))
+  m.engine.plan({ action: 'accept', itemId: mPlan.item.id, acceptWithoutEvidence: true }, m.actor(mOwner))
+  const mVerify = await m.engine.verify({ objectiveId: missing.objective.id }, m.actor(mOwner))
+  assert.equal(mVerify.ok, false)
+  assert.equal(mVerify.code, 'mechanical-check-failed')
+  assert.match(mVerify.checks[0].error, /missing-artifact/)
+  m.close()
+  section('artifact checks are executed as stat/hash checks by the engine')
+}
+
+// Check lint is advisory at creation and available as a tool with baseline execution.
+{
+  const ctx = makeCtx({ commands: { 'make check': { exitCode: 0, stdout: 'ok\n' } } })
+  const clock = makeClock()
+  const h = compose({ ctx, clock })
+  const owner = ctx.makeAgent({ preset: 'orchestrator' })
+  humanSystem(h, owner, { action: 'resume' })
+  const created = createAsHuman(h, owner, {
+    statement: 'Lint the checks',
+    criteria: [
+      { statement: 'vacuous', check: { kind: 'command', command: 'true' } },
+      { statement: 'silent', check: { kind: 'command', command: 'git diff --quiet' } },
+      'evidence only',
+    ],
+  })
+  assert.equal(created.ok, true)
+  assert.ok(Array.isArray(created.warnings))
+  assert.ok(created.warnings.some((warning) => warning.code === 'vacuous-check'))
+  assert.ok(created.warnings.some((warning) => warning.code === 'silent-check'))
+  const lintTool = h.tools.find((definition) => definition.name === 'objective_lint')
+  const byName = (name) => h.tools.find((definition) => definition.name === name)
+  const linted = await byName('objective_lint').execute({ objectiveId: created.objective.id, execute: true }, h.exec(owner))
+  assert.equal(linted.ok, true)
+  assert.equal(linted.executed, true)
+  assert.ok(linted.findings.some((finding) => finding.code === 'vacuous-check'))
+  assert.equal(linted.checks.length, 2, 'both command checks were executed')
+  assert.equal(lintTool.name, 'objective_lint')
+  h.close()
+  section('check lint warns at creation and objective_lint executes a baseline')
+}
+
+// ---------------------------------------------------------------------------
+// 12. Verification request gates before the checker runs
+// ---------------------------------------------------------------------------
+{
+  const shellSpawns = (ctx) => ctx.spawns.filter((spawn) => /(^|\/)(bash|sh|zsh)$/.test(spawn.argv[0]) && spawn.argv.includes('-lc')).length
+  const setupObjective = async (ctx, h, owner, command = 'make check') => {
+    const created = createAsHuman(h, owner, {
+      statement: 'Gate the checker',
+      criteria: [{ statement: 'the command passes', check: { kind: 'command', command, expectedExitCode: 0 } }],
+    })
+    const planned = h.engine.plan({ objectiveId: created.objective.id, title: 'deliver', acceptance: ['built'], criterionIds: ['c1'] }, h.actor(owner))
+    const dispatched = await h.engine.dispatch({ itemId: planned.item.id, persona: 'architect', brief: 'build it' }, h.actor(owner))
+    const child = ctx.agents.get(dispatched.childSessionId)
+    h.engine.report({ objectiveId: created.objective.id, itemId: planned.item.id, text: 'done', evidence: [{ kind: 'command', command, exitCode: 0 }] }, h.actor(child))
+    h.engine.plan({ action: 'accept', itemId: planned.item.id }, h.actor(owner))
+    return created.objective.id
+  }
+
+  // 1) A non-owner cannot make the engine execute criterion commands.
+  {
+    const ctx = makeCtx({ commands: { 'make check': { exitCode: 0 } } })
+    const h = compose({ ctx, clock: makeClock() })
+    const owner = ctx.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h, owner, { action: 'resume' })
+    const objectiveId = await setupObjective(ctx, h, owner)
+    const stranger = ctx.makeAgent({ preset: 'writer' })
+    const before = shellSpawns(ctx)
+    const rejected = await h.engine.verify({ objectiveId }, h.actor(stranger))
+    assert.equal(rejected.code, 'unauthorized')
+    assert.equal(shellSpawns(ctx), before, 'no criterion command runs for an unauthorized request')
+    assert.equal(h.engine.state.verifications.size, 0)
+    h.close()
+  }
+
+  // 2) A not-ready request (no accepted work order) runs no checks.
+  {
+    const ctx = makeCtx({ commands: { 'make check': { exitCode: 0 } } })
+    const h = compose({ ctx, clock: makeClock() })
+    const owner = ctx.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h, owner, { action: 'resume' })
+    const created = createAsHuman(h, owner, {
+      statement: 'No work order yet',
+      criteria: [{ statement: 'command', check: { kind: 'command', command: 'make check', expectedExitCode: 0 } }],
+    })
+    const before = shellSpawns(ctx)
+    const notReady = await h.engine.verify({ objectiveId: created.objective.id }, h.actor(owner))
+    assert.equal(notReady.code, 'not-ready')
+    assert.equal(shellSpawns(ctx), before, 'no criterion command runs for a not-ready request')
+    assert.equal(h.engine.state.verifications.size, 0)
+    h.close()
+  }
+
+  // 3) Duplicate ids are a subset, never fake full coverage.
+  {
+    const ctx = makeCtx({ commands: { 'make check': { exitCode: 0 }, 'make lint': { exitCode: 0 } } })
+    const h = compose({ ctx, clock: makeClock() })
+    const owner = ctx.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h, owner, { action: 'resume' })
+    const created = createAsHuman(h, owner, {
+      statement: 'Two criteria',
+      criteria: [
+        { statement: 'build', check: { kind: 'command', command: 'make check', expectedExitCode: 0 } },
+        { statement: 'lint', check: { kind: 'command', command: 'make lint', expectedExitCode: 0 } },
+      ],
+    })
+    const planned = h.engine.plan({ objectiveId: created.objective.id, title: 'deliver', acceptance: ['built'], criterionIds: ['c1', 'c2'] }, h.actor(owner))
+    const dispatched = await h.engine.dispatch({ itemId: planned.item.id, persona: 'architect', brief: 'build it' }, h.actor(owner))
+    const child = ctx.agents.get(dispatched.childSessionId)
+    h.engine.report({ objectiveId: created.objective.id, itemId: planned.item.id, text: 'done', evidence: [{ kind: 'command', command: 'make check', exitCode: 0 }] }, h.actor(child))
+    h.engine.plan({ action: 'accept', itemId: planned.item.id }, h.actor(owner))
+    const requested = await h.engine.verify({ objectiveId: created.objective.id, criterionIds: ['c1', 'c1'], force: true }, h.actor(owner))
+    assert.equal(requested.ok, true)
+    assert.equal(requested.verification.advisory, true, 'duplicate ids cannot turn a subset into a full-coverage request')
+    assert.equal(requested.verification.criterionIds.length, 1)
+    const verifier = ctx.agents.get(requested.verifierSessionId)
+    const verdict = h.engine.verdict({ verificationId: requested.verification.id, verdict: 'approve', commit: 'a'.repeat(40), workspaceClean: true, evidence: [{ criterionId: 'c1', kind: 'command', command: 'make check', exitCode: 0 }] }, h.actor(verifier))
+    assert.equal(verdict.ok, true)
+    assert.equal(objective(h, created.objective.id).state, 'active', 'advisory verification can never complete the objective')
+    h.close()
+  }
+
+  // 4) A dirty pinned workspace is refused before any criterion runs.
+  {
+    const ctx = makeCtx({ git: { head: 'c'.repeat(40), dirty: true }, commands: { 'make check': { exitCode: 0 } } })
+    const h = compose({ ctx, clock: makeClock() })
+    const owner = ctx.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h, owner, { action: 'resume' })
+    const objectiveId = await setupObjective(ctx, h, owner)
+    const before = shellSpawns(ctx)
+    const beforeActivations = ctx.activations.length
+    const dirty = await h.engine.verify({ objectiveId }, h.actor(owner))
+    assert.equal(dirty.code, 'dirty-workspace')
+    assert.equal(shellSpawns(ctx), before, 'no criterion command runs on a dirty pinned workspace')
+    assert.equal(ctx.activations.length, beforeActivations, 'no verifier child is started')
+    h.close()
+  }
+  section('verification gates (authority, readiness, coverage, clean pin) precede checker execution')
 }
 
 console.log(`\nobjective-engine selftests passed (${passed.length} sections)`)

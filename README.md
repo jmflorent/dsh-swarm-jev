@@ -11,11 +11,12 @@ bundles with a `cordis.patch.yml`, plain ES modules, and Markdown.
 |---|---|---|---|
 | **Role personas** | [`packages/dsh-personas`](packages/dsh-personas) (`@local/dsh-personas` 1.1.0) | Seven agent presets — orchestrator, architect, writer, reviewer, researcher, plus the objective manager and verifier session types — layered over the shipped DSH presets | Stable |
 | **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.4) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** (with objectives when the engine is composed) | Stable |
-| **Objective/progress orchestrator** | [`packages/objective-engine`](packages/objective-engine) (`@local/objective-engine` 0.2.0) + [`docs/objective-engine.md`](docs/objective-engine.md) | The control plane: hash-chained objective/progress journal, admission and measured load, six budgets, event-driven wakeups with a pre-step fence, engine-started workers and verifier with commit pinning, a verifier-gated completion with human acknowledgment, a kill switch, and an advisory Mammoth classifier | **Phase 1 accepted** (in-harness acceptance, 2026-11-08; see [`docs/acceptance/phase-1.md`](docs/acceptance/phase-1.md)) — Phase 2 hardening (worktrees, merge queue, cadence) remains design |
+| **Objective/progress orchestrator** | [`packages/objective-engine`](packages/objective-engine) (`@local/objective-engine` 0.3.0) + [`docs/objective-engine.md`](docs/objective-engine.md) | The control plane: hash-chained objective/progress journal, admission and measured load, six budgets, event-driven wakeups with a pre-step fence, engine-started workers and verifier with commit pinning, a verifier-gated completion with human acknowledgment, a kill switch, and an advisory Mammoth classifier | **Phase 1 accepted** (in-harness acceptance, 2026-11-08; see [`docs/acceptance/phase-1.md`](docs/acceptance/phase-1.md)) — Phase 2 hardening (worktrees, merge queue, cadence) remains design |
 
 > The objective engine implements Phase 1 of the design in
 > [`packages/objective-engine`](packages/objective-engine) and is covered by a
-> nine-condition test suite. The Phase-1 in-harness acceptance drill (2026-11-08)
+> nine-condition test suite plus a deterministic checker
+> ([`docs/checker.md`](docs/checker.md)). The Phase-1 in-harness acceptance drill (2026-11-08)
 > passed end to end; its evidence and the two defects it found are recorded in
 > [`docs/acceptance/phase-1.md`](docs/acceptance/phase-1.md). Phase 2 — per-objective worktrees with a merge
 > queue, schedule-driven cadence, an acknowledgment page, cross-process leases,
@@ -171,7 +172,7 @@ a complete, credential-free profile patch.
 | Bundled Node / pnpm shipped with DSH | Node 24.21.0 / pnpm 11.28.5 |
 | `@local/dsh-personas` | 1.1.0 — no runtime dependencies |
 | `@local/systemone` | 0.2.4 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; no runtime dependencies (vendored `schemastery` 3.18.5 + `cosmokit` 1.8.6, MIT); browser half at `lib/client.js` (`platform: web`) |
-| `@local/objective-engine` | 0.2.0 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; no runtime dependencies; uses the host `agents`, `agentPresets`, `subagents`, `subprocess`, `workingDirectory`, `tokenMeter`, and `systemone` services with typed degradation |
+| `@local/objective-engine` | 0.3.0 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; no runtime dependencies; uses the host `agents`, `agentPresets`, `subagents`, `subprocess`, `workingDirectory`, `tokenMeter`, and `systemone` services with typed degradation; the checker executes command/artifact criteria itself (see [`docs/checker.md`](docs/checker.md)) |
 
 DSH's plugin API is young. Treat the versions above as the tested set: if you
 run a different DSH release, install in `shadow` mode first and check
@@ -251,6 +252,7 @@ dsh-swarm-jev/
 | [`docs/decision-system.md`](docs/decision-system.md) | Understand the System One tools, every decision, the modes, swarm mode, and the Settings screen |
 | [`docs/orchestrator.md`](docs/orchestrator.md) | Understand the swarm orchestrator and which design items are implemented |
 | [`docs/objective-engine.md`](docs/objective-engine.md) | Run the objective/progress loop: records, state machines, the driver, authority, the classifier |
+| [`docs/checker.md`](docs/checker.md) | Understand how delivery is checked: executed criteria, the verifier gate, lint/baseline, and the comparison with Ringer |
 | [`docs/install.md`](docs/install.md) | Install, enable, reload, verify, uninstall, and roll back on another machine |
 | [`docs/configuration.md`](docs/configuration.md) | Change a config field without breaking the layer; understand precedence and credentials |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Fix an endpoint, auth, answer, mode, Settings-page, or version problem |

@@ -549,8 +549,13 @@ export const settleChild = (core, item, info) => {
 // Verification
 // ---------------------------------------------------------------------------
 
-/** O4: request verification. `pin` is the commit record produced by verify.js. */
-export const requestVerification = (core, input, actor, pin) => {
+/**
+ * Validate that a verification request would be admitted, WITHOUT executing
+ * checks or appending anything. This is the authority/readiness/budget gate the
+ * engine consults before running criterion commands; the deterministic checker
+ * must never execute for a request that would be rejected.
+ */
+export const prepareVerification = (core, input, actor, pin) => {
   const { objective, error } = loadObjective(core, input?.objectiveId)
   if (error !== undefined) return error
   const notActive = requireActive(objective)
@@ -560,7 +565,9 @@ export const requestVerification = (core, input, actor, pin) => {
   if (stale !== undefined) return stale
   const nowMs = core.now()
   const all = objective.criteria.map((criterion) => criterion.id)
-  const requested = Array.isArray(input?.criterionIds) && input.criterionIds.length > 0 ? input.criterionIds.map(String).filter((id) => all.includes(id)) : all
+  // Deduplicate: {criterionIds:["c1","c1"]} is the subset {c1}, never a
+  // complete-coverage request for a two-criterion objective.
+  const requested = [...new Set((Array.isArray(input?.criterionIds) && input.criterionIds.length > 0 ? input.criterionIds : all).map(String).filter((id) => all.includes(id)))]
   if (requested.length === 0) return fail('record-incomplete', 'criterionIds name no known criterion')
   if (!allLinkedAccepted(core, objective, requested) && input?.force !== true) {
     const open = itemsOf(core.state, objective.id).filter((item) => item.kind === 'work-order' && !['accepted', 'cancelled', 'rejected', 'failed'].includes(item.state)).map((item) => `${item.id}:${item.state}`)
@@ -570,7 +577,16 @@ export const requestVerification = (core, input, actor, pin) => {
   const gate = gateVerification(core.state, core.settings, objective, nowMs)
   if (gate !== undefined) return fail(gate.code, `verification refused: ${gate.counter ?? gate.limit}=${gate.current}`, gate)
   if (core.settings.requireCommitPin && pin?.commit === undefined) return fail('commit-unavailable', 'commit pinning is required but no commit could be resolved')
+  if (pin?.pinned === true && pin.dirty === true) return fail('dirty-workspace', 'the workspace has uncommitted changes; commit or discard them before verification so the executed checks correspond to the pinned commit')
   const advisory = requested.length < all.length
+  return ok({ objective, requested, all, advisory, nowMs })
+}
+
+/** O4: request verification. `pin` is the commit record produced by verify.js. */
+export const requestVerification = (core, input, actor, pin, checks) => {
+  const prepared = prepareVerification(core, input, actor, pin)
+  if (!prepared.ok) return prepared
+  const { objective, requested, advisory, nowMs } = prepared
   const verification = {
     schema: SCHEMA,
     id: mintId('ver'),
@@ -583,6 +599,8 @@ export const requestVerification = (core, input, actor, pin) => {
     requestedBy: { sessionId: actor.sessionId, tool: 'objective_verify' },
     requestedAt: iso(nowMs),
     verifier: null,
+    checker: { mode: checks?.mode ?? 'none', available: checks?.available === true, executed: checks?.executed ?? 0, ...(checks?.reason === undefined ? {} : { reason: checks.reason }) },
+    checks: Array.isArray(checks?.results) ? checks.results : [],
     evidence: [],
     verdict: null,
     ack: null,
@@ -643,7 +661,15 @@ export const recordVerdict = (core, input, actor) => {
   const criteria = objective.criteria.filter((criterion) => verification.criterionIds.includes(criterion.id))
   const mechanical = criteria.filter((criterion) => criterion.check.kind !== 'human-ack')
   const covered = mechanical.filter((criterion) => evidence.some((entry) => evidenceCovers(criterion, entry)))
+  // The engine's own executed checks are authoritative: a verifier approval
+  // cannot override a failed mechanical check.
+  const failedChecks = (Array.isArray(verification.checks) ? verification.checks : []).filter((check) => check.passed !== true)
   const uncovered = mechanical.filter((criterion) => !covered.includes(criterion)).map((criterion) => criterion.id)
+  // A non-advisory verification must cover the whole criteria set by id. This
+  // closes the duplicate-id subset trap (criterionIds:["c1","c1"] is {c1}).
+  const requestedIds = [...new Set(verification.criterionIds ?? [])]
+  const allIds = objective.criteria.map((criterion) => criterion.id)
+  const completeCoverage = !verification.advisory && requestedIds.length === allIds.length && allIds.every((id) => requestedIds.includes(id))
   let effective = verdictKind
   let downgrade
   if (verification.criteriaVersion !== objective.criteriaVersion) {
@@ -659,6 +685,12 @@ export const recordVerdict = (core, input, actor) => {
     } else if (verification.commit?.pinned && !workspaceClean) {
       effective = 'inconclusive'
       downgrade = 'dirty-workspace'
+    } else if (!completeCoverage) {
+      effective = 'inconclusive'
+      downgrade = `incomplete-coverage:${allIds.filter((id) => !requestedIds.includes(id)).join(',')}`
+    } else if (failedChecks.length > 0) {
+      effective = 'reject'
+      downgrade = `mechanical-check-failed:${failedChecks.map((check) => check.criterionId).join(',')}`
     } else if (uncovered.length > 0) {
       effective = 'inconclusive'
       downgrade = `missing-evidence:${uncovered.join(',')}`

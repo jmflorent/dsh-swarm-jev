@@ -72,3 +72,21 @@ after committing the fixes.
 - Phase-2 hardening itself: durable `dsh-schedule` cadence, per-objective
   worktrees + serialized merge queue, acknowledgment page/command surface,
   metrics/OTel, cross-process leases, the P2 drills, and the 72 h soak.
+
+
+## Post-acceptance checker evolution (0.3.0)
+
+After Phase 1 was accepted, the checker was hardened along the lines of
+[Ringer](https://github.com/NateBJones-Projects/ringer): the engine now executes
+`command`/`artifact` criteria itself, fails verification before spending a
+verifier run, reports exact exit/output evidence, exposes check lint and a
+baseline through `objective_lint`, and tells workers which checks will be
+executed. The verifier remains mandatory for semantic review. The comparison,
+trust model, and the deliberate non-adoptions are in
+[`docs/checker.md`](../checker.md).
+
+An isolated headless acceptance run re-ran the Phase-1 end-to-end drill against
+0.3.0 and recorded the executed-check results in the verification record; the
+twenty-one-section suite covers both the passing path and the preflight-failure path
+(no verifier child is started). The live deployment was upgraded to 0.3.0 and
+remains paused by default.

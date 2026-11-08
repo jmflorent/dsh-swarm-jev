@@ -585,12 +585,25 @@ than these maxima, never higher. `objective_control budget-raise` raises it.
 | Field | Default | Meaning |
 |---|---|---|
 | `subagentProvider` | `spawn` | Provider name the engine passes to `startActivation`. |
-| `workerMaxDepth` | `0` | Delegation cap for engine-started children (`0`: they cannot delegate). |
+| `workerMaxDepth` | `1` | Extra delegation levels allowed below the owner (the subagent service treats `maxDepth` as an absolute depth: a root owner may start a depth-1 worker; `0` would forbid the worker itself). |
 | `verifierPresets` | `[verifier, reviewer]` | Tried in order; a candidate equal to the producer's preset is skipped. |
 | `requireCommitPin` | `false` | When true `objective_verify` fails `commit-unavailable` outside a git checkout. |
 | `snapshotEvery` | `128` | Events between snapshots. |
 
-### 7.6 Advisory classifier
+### 7.6 Deterministic checks (the checker)
+
+The engine executes `command` and `artifact` criteria itself before starting a
+verifier child. A failing check returns `mechanical-check-failed` with the exit
+code and bounded output and consumes no verifier run. See [`checker.md`](checker.md).
+
+| Field | Default | Meaning |
+|---|---|---|
+| `checkerExecute` | `true` | Run command/artifact criteria in the engine. Set `false` to fall back to verifier-run evidence when no host subprocess service is available. |
+| `checkerTimeoutMs` | `120000` | Default per-check timeout (a criterion may set a lower/higher `timeoutMs`, capped by the ceiling). |
+| `checkerMaxTimeoutMs` | `3600000` | Ceiling for a per-check timeout. |
+| `checkerMaxOutputBytes` | `65536` | Bounded stdout/stderr captured for each check (`stdoutExcerpt`/`stderrExcerpt` are tail-limited too). |
+
+### 7.7 Advisory classifier
 
 | Field | Default | Meaning |
 |---|---|---|

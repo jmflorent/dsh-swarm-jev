@@ -28,12 +28,13 @@ export const makeSession = (id, { cwd = '/workspace', events = [] } = {}) => ({
   },
 })
 
-export const makeCtx = ({ presets = {}, git = { head: 'a'.repeat(40), dirty: false }, systemone } = {}) => {
+export const makeCtx = ({ presets = {}, git = { head: 'a'.repeat(40), dirty: false }, systemone, commands = {} } = {}) => {
   const listeners = new Map()
   const registered = []
   const agents = new Map()
   const roots = new Set()
   const activations = []
+  const spawns = []
   const services = {}
 
   const emit = (event, ...args) => {
@@ -113,7 +114,22 @@ export const makeCtx = ({ presets = {}, git = { head: 'a'.repeat(40), dirty: fal
   services.workingDirectory = { get: (session) => session?.cwd }
   services.subprocess = {
     resolveExecutable: async (name) => `/usr/bin/${name}`,
-    spawn: ({ argv }) => {
+    spawn: ({ argv, cwd }) => {
+      spawns.push({ argv: [...argv], cwd })
+      const shellCommand = /(^|\/)(bash|sh|zsh)$/.test(argv[0]) && (argv[1] === '-lc' || argv[1] === '-c') ? argv[2] : undefined
+      if (shellCommand !== undefined) {
+        const result = services.checkCommands[shellCommand] ?? { exitCode: 0, stdout: '', stderr: '' }
+        return {
+          done: result.reject === true ? Promise.reject(new Error(result.error ?? 'spawn failed')) : Promise.resolve({ exitCode: result.exitCode ?? 0, signal: null }),
+          terminate: () => {
+            result.terminated = true
+          },
+          collected: {
+            stdout: { readFrom: () => result.stdout ?? '' },
+            stderr: { readFrom: () => result.stderr ?? '' },
+          },
+        }
+      }
       const sub = argv[1]
       let stdout = ''
       let exitCode = 0
@@ -126,6 +142,7 @@ export const makeCtx = ({ presets = {}, git = { head: 'a'.repeat(40), dirty: fal
       }
     },
   }
+  services.checkCommands = commands
   services.subagents = {
     startActivation: async ({ provider, label, request, delivery }) => {
       if (services.subagents.reject !== undefined) throw new Error(services.subagents.reject)
@@ -180,6 +197,7 @@ export const makeCtx = ({ presets = {}, git = { head: 'a'.repeat(40), dirty: fal
     services,
     agents,
     activations,
+    spawns,
     makeAgent,
     listeners,
   }
