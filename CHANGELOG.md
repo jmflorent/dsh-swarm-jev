@@ -98,6 +98,22 @@ nine-condition test suite pins the completion gate.
 
 ### Fixed
 
+- `packages/objective-engine` — a dispatch issued by a **human owner** was
+  journaled but rejected by the fold: `item/dispatched` (and the `verification/`
+  family) did not allow the `human` actor kind, so the journal and the in-memory
+  state diverged (`fold rejected a freshly written event: item/dispatched`) even
+  though the child had started. Both now allow human owners; a regression pins
+  the human-owner dispatch case that the agent-actor-only tests missed.
+
+- `packages/objective-engine` — engine-started workers could never start when
+  the subagent service was present: the dispatcher passed `maxDepth: 0`, which
+  the subagent service treats as an **absolute** child-depth cap, so every
+  depth-1 worker (and the verifier) failed with `subagent depth 1 exceeds
+  maxDepth 0`. The dispatcher now caps at the owner's delegation depth + 1
+  (`workerMaxDepth` default 1), which allows a root or nested owner to start its
+  worker while still forbidding grandchildren; a regression section pins the
+  root (cap 1) and nested (cap 2) cases.
+
 - `packages/dsh-systemone` 0.2.4 — the package is now **self-contained** so a
   linked/offline install works with no registry resolution:
   - vendored the MIT `schemastery` 3.18.5 and `cosmokit` 1.8.6 sources under

@@ -22,6 +22,7 @@ export const makeSession = (id, { cwd = '/workspace', events = [] } = {}) => ({
   id,
   cwd,
   events,
+  header: { delegationDepth: 0 },
   snapshotEvents() {
     return [...this.events]
   },

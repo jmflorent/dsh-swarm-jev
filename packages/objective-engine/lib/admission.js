@@ -79,7 +79,7 @@ export const resolveSettings = (config = {}) => {
     requireHumanAuthority: config.requireHumanAuthority !== false,
     autoVerify: config.autoVerify === true,
     verifierPresets: Array.isArray(config.verifierPresets) && config.verifierPresets.length > 0 ? config.verifierPresets.map(String) : ['verifier', 'reviewer'],
-    workerMaxDepth: nonNegativeInt(config.workerMaxDepth, 0, 4),
+    workerMaxDepth: nonNegativeInt(config.workerMaxDepth, 1, 4),
     subagentProvider: typeof config.subagentProvider === 'string' && config.subagentProvider !== '' ? config.subagentProvider : 'spawn',
     requireCommitPin: config.requireCommitPin === true,
     snapshotEvery: positiveInt(config.snapshotEvery, 128, 100_000),

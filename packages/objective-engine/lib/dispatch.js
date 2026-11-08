@@ -24,6 +24,20 @@ export const createDispatcher = ({ ctx, settings, log, onSettled }) => {
   }
   const available = () => typeof service()?.startActivation === 'function'
 
+  // The subagent service treats `maxDepth` as an ABSOLUTE cap on the child's
+  // own delegation depth (a top-level owner is depth 0, its worker is depth 1).
+  // The engine therefore allows exactly one delegation level below the owner,
+  // so a worker can never start a grandchild even when the owner itself is a
+  // nested orchestrator.
+  const depthOf = (parent) => {
+    const header = parent?.session?.header?.delegationDepth
+    const runtime = parent?.options?.subagentDepth
+    const fromHeader = Number.isSafeInteger(header) && header >= 0 ? header : 0
+    const fromRuntime = Number.isSafeInteger(runtime) && runtime >= 0 ? runtime : 0
+    return Math.max(fromHeader, fromRuntime)
+  }
+  const childDepthCap = (parent) => depthOf(parent) + Math.max(1, settings.workerMaxDepth)
+
   const cwdOf = async (parent) => {
     try {
       const wd = ctx.get?.('workingDirectory') ?? ctx.workingDirectory
@@ -55,7 +69,7 @@ export const createDispatcher = ({ ctx, settings, log, onSettled }) => {
             prompt: [{ type: 'text', text: prompt }],
             ...(preset === undefined ? {} : { agentPreset: preset }),
             ...(cwd === undefined ? {} : { cwd }),
-            maxDepth: settings.workerMaxDepth,
+            maxDepth: childDepthCap(parent),
           },
           signal: controller.signal,
           delivery: 'parent',

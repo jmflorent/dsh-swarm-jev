@@ -201,7 +201,7 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   assert.equal(dispatched.ok, true, JSON.stringify(dispatched))
   assert.equal(ctx.activations.length, 1)
   assert.equal(ctx.activations[0].request.agentPreset, 'architect')
-  assert.equal(ctx.activations[0].request.maxDepth, 0)
+  assert.equal(ctx.activations[0].request.maxDepth, 1, 'a top-level owner may start a depth-1 worker')
   assert.equal(ctx.activations[0].delivery, 'parent')
   assert.match(ctx.activations[0].request.prompt[0].text, /OBJECTIVE ENGINE WORK ORDER/)
   const childId = dispatched.childSessionId
@@ -806,6 +806,47 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   }
   h.close()
   section('eleven tools registered and callable through the fake execution context')
+}
+
+// ---------------------------------------------------------------------------
+// 10. Regression: the child-depth cap is absolute, not relative
+// ---------------------------------------------------------------------------
+{
+  const ctx = makeCtx()
+  const clock = makeClock()
+  const h = compose({ ctx, clock })
+  const owner = ctx.makeAgent({ preset: 'objective-manager' })
+  // A nested orchestrator owner is itself at delegation depth 1.
+  owner.session.header.delegationDepth = 1
+  humanSystem(h, owner, { action: 'resume' })
+  const created = createAsHuman(h, owner, {
+    statement: 'Nested orchestrator dispatch',
+    criteria: [simpleCriteria[0]],
+  })
+  const planned = h.engine.plan(
+    { objectiveId: created.objective.id, title: 'Nested item', detail: 'no-op', acceptance: ['reported'], criterionIds: ['c1'] },
+    h.actor(owner),
+  )
+  assert.equal(planned.ok, true)
+  await h.engine.dispatch({ itemId: planned.item.id, persona: 'architect', brief: 'nested' }, h.actor(owner))
+  assert.equal(ctx.activations[0].request.maxDepth, 2, 'a nested owner may start a depth-2 worker')
+
+  // A dispatch by the human owner (the headless one-turn case) must fold; the
+  // event actor is `human`, not just `agent`.
+  const second = createAsHuman(h, owner, { statement: 'Human owner dispatch', criteria: [simpleCriteria[0]] })
+  const secondPlan = h.engine.plan(
+    { objectiveId: second.objective.id, title: 'Human dispatch item', detail: 'no-op', acceptance: ['reported'], criterionIds: ['c1'] },
+    h.actor(owner),
+  )
+  assert.equal(secondPlan.ok, true)
+  owner.humanTurn('dispatch as the human owner')
+  const byHuman = await h.engine.dispatch({ itemId: secondPlan.item.id, persona: 'architect', brief: 'human dispatch' }, h.actor(owner))
+  owner.idle()
+  assert.equal(byHuman.ok, true, JSON.stringify(byHuman))
+  assert.equal(h.engine.state.items.get(secondPlan.item.id).state, 'dispatched')
+  assert.equal(ctx.activations[1].request.maxDepth, 2)
+  h.close()
+  section('child-depth cap is absolute: a root owner §1, a nested owner §2; a human owner dispatch folds')
 }
 
 console.log(`\nobjective-engine selftests passed (${passed.length} sections)`)

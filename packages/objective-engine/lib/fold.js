@@ -19,13 +19,15 @@ const ALLOWED_ACTORS = {
   'objective/ack-recorded': new Set(['human']),
   'objective/closed': new Set(['human', 'engine']),
   'item/created': new Set(['human', 'agent']),
-  'item/dispatched': new Set(['agent', 'engine']),
+  // A human owner dispatches from a turn with a direct human message; the
+  // dispatch is the human's own act, so it must fold exactly like an agent's.
+  'item/dispatched': new Set(['human', 'agent', 'engine']),
   'item/reported': new Set(['agent', 'engine']),
   'item/accepted': new Set(['human', 'agent', 'engine']),
   'item/rejected': new Set(['human', 'agent']),
   'item/failed': new Set(['engine']),
   'item/cancelled': new Set(['human', 'agent', 'engine']),
-  'verification/': new Set(['agent', 'engine']),
+  'verification/': new Set(['human', 'agent', 'engine']),
   'wakeup/': new Set(['engine']),
   'admission/': new Set(['human', 'agent', 'engine']),
 }
