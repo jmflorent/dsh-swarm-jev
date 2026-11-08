@@ -13,8 +13,8 @@
  * returned from a tool, never logged, and never written to configuration.
  */
 
-import { defineTool } from '@deepseek-ai/dsh-tools'
-import Schema from '@deepseek-ai/schemastery'
+import { defineTool } from './lib/define-tool.js'
+import Schema from './vendor/schemastery/index.mjs'
 import { createDecisionRuntime } from './lib/decisions.js'
 import { buildMultipart, loadImage } from './lib/vision.js'
 

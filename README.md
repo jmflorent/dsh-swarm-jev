@@ -10,7 +10,7 @@ bundles with a `cordis.patch.yml`, plain ES modules, and Markdown.
 | Part | Package / location | What it gives you | Status |
 |---|---|---|---|
 | **Role personas** | [`packages/dsh-personas`](packages/dsh-personas) (`@local/dsh-personas` 1.0.0) | Five agent presets — orchestrator, architect, writer, reviewer, researcher — layered over the shipped DSH presets | Stable |
-| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.2) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** (with objectives when the engine is composed) | Stable |
+| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.3) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** (with objectives when the engine is composed) | Stable |
 | **Objective/progress orchestrator** | [`packages/objective-engine`](packages/objective-engine) (`@local/objective-engine` 0.1.0) + [`docs/objective-engine.md`](docs/objective-engine.md) | A working MVP control plane: durable objective/progress journal, admission and round budgets, an independent verification gate, advisory Mammoth tagging, and a driver that drops progress prompts over time | **MVP implemented** — full hardening design remains |
 
 > The objective engine now ships as a working MVP in
@@ -143,7 +143,7 @@ Full instructions, including CLI and manual profile wiring:
 | Bundle | Install path | Requires | Enables |
 |---|---|---|---|
 | `@local/dsh-personas` | `packages/dsh-personas` | DSH 0.2.2-rc.1 | Five presets in the New-session picker and Settings → Agent presets |
-| `@local/systemone` | `packages/dsh-systemone` | DSH 0.2.2-rc.1, a reachable System One endpoint; pnpm/registry access for its two dependencies; the Web client for the Settings page | `systemone_*` and `swarm_*` tools, the decision layer, per-preset policy/judge, Settings → Decision model |
+| `@local/systemone` | `packages/dsh-systemone` | DSH 0.2.2-rc.1, a reachable System One endpoint; no dependency resolution (schema library vendored); the Web client for the Settings page | `systemone_*` and `swarm_*` tools, the decision layer, per-preset policy/judge, Settings → Decision model |
 
 Both bundles are added through the DSH Web Plugins page (or the equivalent
 profile wiring). Keep `@local/dsh-personas` before `@local/systemone` in the
@@ -161,7 +161,7 @@ a complete, credential-free profile patch.
 | DSH profile team packages | 0.2.2-rc.1 |
 | Bundled Node / pnpm shipped with DSH | Node 24.21.0 / pnpm 11.28.5 |
 | `@local/dsh-personas` | 1.0.0 — no runtime dependencies |
-| `@local/systemone` | 0.2.2 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; declares `@deepseek-ai/dsh-tools` 0.2.1-rc.3, `@deepseek-ai/schemastery` ~3.18.5; browser half at `lib/client.js` (`platform: web`) |
+| `@local/systemone` | 0.2.3 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; no runtime dependencies (vendored `schemastery` 3.18.5 + `cosmokit` 1.8.6, MIT); browser half at `lib/client.js` (`platform: web`) |
 | `@local/objective-engine` | 0.1.0 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; no runtime dependencies |
 
 DSH's plugin API is young. Treat the versions above as the tested set: if you

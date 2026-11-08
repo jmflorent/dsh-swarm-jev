@@ -47,6 +47,13 @@ DeepSeek Harness release it runs on. See
   `tool-todo.allowParallelInProgress`. Both are now supplied per preset, so all
   nine presets (four shipped plus five custom) load cleanly.
 
+- `packages/dsh-systemone` 0.2.3 — the package is now **self-contained** so a
+  linked/offline install works with no registry resolution: vendored the MIT
+  `schemastery` 3.18.5 + `cosmokit` 1.8.6 sources under
+  `packages/dsh-systemone/vendor/` and replaced the `@deepseek-ai/dsh-tools`
+  `defineTool` import with `lib/define-tool.js` (same registry-ready definition
+  shape); removed both runtime dependencies from `package.json`.
+
 ### Removed
 
 - `packages/dsh-systemone` — removed configuration fields the runtime never

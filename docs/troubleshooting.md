@@ -224,7 +224,7 @@ repository's bundle already carries the fields.
 |---|---|---|
 | `dsh --version` is not `0.2.2-rc.1` | The bundle targets `>=0.2.2-rc.1 <0.3.0` | Use a supported DSH, or fork and adjust `engines` at your own risk |
 | Loader complains it cannot resolve `@local/systemone` | The package is not a profile dependency, or the bundle is not in `dsh.profile.bundles` | Re-run the install path in [`docs/install.md`](install.md) |
-| Loader complains about `@deepseek-ai/dsh-tools` or `@deepseek-ai/schemastery` | The bundle's dependencies were not resolved (offline install, no registry) | Run `dsh plugin --profile <name> install`, or provide the packages from a local store; installs need pnpm/registry access |
+| Loader complains about `@deepseek-ai/dsh-tools` or `@deepseek-ai/schemastery` | You installed the old 0.2.2 package, which needed registry resolution | Install `packages/dsh-systemone` 0.2.3 or later: its schema library is vendored and it has no runtime dependencies |
 | Node version error | DSH's bundled Node is older than 24 | Update DSH; the bundle expects the DSH-provided Node |
 | Client package fails to build | The Web client build step failed; host half still works | Restart DSH; check the app log; if persistent, use the profile patch and remove the client half only if you fork |
 | `EACCES` on profile files | Profile directory permissions | Fix ownership/permissions on `~/.dsh/profiles/<name>` |
@@ -268,14 +268,12 @@ shadow computes the same decisions and records them without changing anything.
 
 ```bash
 cd packages/dsh-systemone
-pnpm install          # resolves @deepseek-ai/dsh-tools and @deepseek-ai/schemastery
 pnpm test             # = node test/run.mjs
 ```
 
 The tests spin up an in-process mock System One endpoint, import the real plugin
 modules, and assert the tools, decision layer, policy, vision transport, and
-swarm behavior. They need no DSH process, but they do need the package's two
-dependencies installed.
+swarm behavior. They need no DSH process and no installed dependencies.
 
 ---
 
