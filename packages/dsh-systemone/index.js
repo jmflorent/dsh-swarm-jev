@@ -108,6 +108,10 @@ export const Config = Schema.object({
         'restrictions, no denials). Decisions can only narrow behavior, never widen it.',
     ),
   swarm: Schema.object({
+    paused: Schema.boolean().default(false).description(
+      'Operator pause for swarm mode. While true, swarm_enter and swarm_assign refuse and no ' +
+        'session can enter swarm mode; reload the plugin after changing this value.',
+    ),
     orchestratorTools: Schema.array(Schema.string()).description(
       'Tools the orchestrator keeps while in swarm mode. Everything else is hidden from it: ' +
         'a swarm orchestrator never does stage work — it decomposes, assigns with swarm_assign, ' +
@@ -752,6 +756,9 @@ export const buildTools = (ctx, config, lastCall, runtime) => {
     isConcurrencySafe: () => true,
     async execute(args, exec) {
       if (exec?.agent === undefined) throw new Error('swarm_enter requires an agent session')
+      if (runtime.settings.swarm?.paused === true) {
+        throw new Error('swarm mode is paused by the operator; finish the current work and wait for the operator to resume it')
+      }
       const result = runtime.swarm.enter(exec.agent)
       return {
         ok: true,
@@ -833,6 +840,9 @@ export const buildTools = (ctx, config, lastCall, runtime) => {
     async execute(args, exec) {
       if (typeof args?.stage !== 'string' || args.stage.trim() === '') {
         throw new Error('"stage" must be a non-empty description of the workplan stage')
+      }
+      if (runtime.settings.swarm?.paused === true) {
+        return { ok: false, latencyMs: 0, error: 'swarm mode is paused by the operator; do not start another stage' }
       }
       if (runtime.swarm.active(exec?.agent) !== true) {
         return { ok: false, latencyMs: 0, error: 'swarm_assign requires swarm mode; call swarm_enter first' }

@@ -640,3 +640,11 @@ Notes:
   Swarm panel renders the engine snapshot as an **Objectives** block.
 - Applying a config change reloads the row; journal state is preserved and the
   engine returns paused.
+
+
+## Swarm operator pause
+
+`swarm.paused: true` in the `systemone` row config disables `swarm_enter` and
+`swarm_assign` for every session until the plugin is reloaded with the value
+removed. Use it to hold a multi-agent run still without unloading the decision
+layer; sessions already in swarm mode are cleared by the reload.

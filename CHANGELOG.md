@@ -33,6 +33,13 @@ verification lessons of the external Ringer runner. Comparison and trust model:
   `checkerMaxOutputBytes`; `objective_status` exposes the checker block and
   executed checks.
 
+### Added
+
+- `swarm.paused` on the systemone row: an operator pause that makes
+  `swarm_enter`/`swarm_assign` refuse until the plugin is reloaded with the flag
+  removed. Reloading also clears active swarm sessions, so a run can be held
+  still cleanly.
+
 ### Changed
 
 - `objective_verify` now pins the commit, executes the checks, and only starts
