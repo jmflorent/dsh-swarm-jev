@@ -4,7 +4,7 @@
  * verifier wiring, token meter) are injected so the same engine runs under a
  * fake context in tests.
  */
-import { applyEvent, deserializeState, emptyState, foldEvents, serializeState } from './fold.js'
+import { applyEvent, canApplyEvent, deserializeState, emptyState, foldEvents, serializeState } from './fold.js'
 import { COUNTED_ACTIVE, clampText, clone, digest, iso, normalizeCriteria } from './records.js'
 import { describeCheckFailures, lintCriteria, summarizeChecks } from './checker.js'
 import { resolveSettings } from './admission.js'
@@ -90,6 +90,11 @@ export const createEngine = ({ config, settings: provided, dataDir, now = Date.n
         ...(key === undefined ? {} : { key }),
         data,
       }
+      // Validate against the live fold first. An event the fold would refuse
+      // must never reach the journal: it would advance store.lastSeq without
+      // advancing state.lastSeq and make every later append fail.
+      const candidate = { ...event, seq: store.lastSeq + 1 }
+      if (!canApplyEvent(state, candidate)) throw new Error(`fold rejected an event before journaling: ${type} (actor ${candidate.actor?.kind})`)
       const written = store.append(event)
       if (!applyEvent(state, written)) throw new Error(`fold rejected a freshly written event: ${type}`)
       if (store.snapshotDue()) store.writeSnapshot(serializeState(state))

@@ -22,7 +22,7 @@ const ALLOWED_ACTORS = {
   // A human owner dispatches from a turn with a direct human message; the
   // dispatch is the human's own act, so it must fold exactly like an agent's.
   'item/dispatched': new Set(['human', 'agent', 'engine']),
-  'item/reported': new Set(['agent', 'engine']),
+  'item/reported': new Set(['human', 'agent', 'engine']),
   'item/accepted': new Set(['human', 'agent', 'engine']),
   'item/rejected': new Set(['human', 'agent']),
   'item/failed': new Set(['engine']),
@@ -89,13 +89,23 @@ const remember = (list, entry, max) => {
 }
 
 /**
+ * Validate an event without mutating state. The journal must reject an event
+ * BEFORE writing it: a persisted-but-unfolded event desynchronises the store's
+ * lastSeq from the folded state and poisons every later append.
+ */
+export const canApplyEvent = (state, event) => {
+  if (!EVENT_TYPES.has(event.type)) return false
+  if (!actorAllowed(event.type, event.actor?.kind)) return false
+  if (typeof event.seq === 'number' && state.lastSeq !== 0 && event.seq !== state.lastSeq + 1) return false
+  return true
+}
+
+/**
  * Apply one event. Returns false (and leaves the state untouched) for an
  * event the fold does not accept: unknown type, disallowed actor, bad seq.
  */
 export const applyEvent = (state, event) => {
-  if (!EVENT_TYPES.has(event.type)) return false
-  if (!actorAllowed(event.type, event.actor?.kind)) return false
-  if (typeof event.seq === 'number' && state.lastSeq !== 0 && event.seq !== state.lastSeq + 1) return false
+  if (!canApplyEvent(state, event)) return false
   const data = event.data ?? {}
   switch (event.type) {
     case 'engine/started':

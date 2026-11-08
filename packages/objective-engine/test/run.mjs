@@ -1109,4 +1109,48 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   section('verification gates (authority, readiness, coverage, clean pin) precede checker execution')
 }
 
+// ---------------------------------------------------------------------------
+// 13. Journal integrity: human reports fold, rejected events never persist
+// ---------------------------------------------------------------------------
+{
+  // The amail incident: an objective-level status report by a human-authority
+  // owner is `item/reported` with actor human; it must fold, not freeze the store.
+  const ctx = makeCtx()
+  const h = compose({ ctx, clock: makeClock() })
+  const owner = ctx.makeAgent({ preset: 'standard' })
+  humanSystem(h, owner, { action: 'resume' })
+  const created = createAsHuman(h, owner, { statement: 'Human report folds', criteria: simpleCriteria })
+  owner.humanTurn('status report')
+  const reported = h.engine.report({ objectiveId: created.objective.id, text: 'Wave 0 status report' }, h.actor(owner))
+  owner.idle()
+  assert.equal(reported.ok, true, JSON.stringify(reported))
+  assert.equal(reported.item.kind, 'status-report')
+  assert.equal(h.engine.state.lastSeq, h.engine.store.lastSeq, 'fold and journal stay in lockstep after a human report')
+  h.close()
+
+  // A fold-invalid event is rejected BEFORE it can poison the journal.
+  {
+    const ctx2 = makeCtx()
+    const h2 = compose({ ctx: ctx2, clock: makeClock() })
+    const jf = join(h2.dataDir, 'journal.jsonl')
+    const before = readFileSync(jf, 'utf8').length
+    assert.throws(() => h2.engine.core.append('wakeup/reserved', { kind: 'human' }, {}), /before journaling/)
+    assert.equal(readFileSync(jf, 'utf8').length, before, 'rejected event is never written')
+    assert.equal(h2.engine.state.lastSeq, h2.engine.store.lastSeq)
+    h2.close()
+  }
+
+  // A snapshot for a different folded sequence is refused and ignored on load.
+  {
+    const ctx3 = makeCtx()
+    const h3 = compose({ ctx: ctx3, clock: makeClock() })
+    const owner3 = ctx3.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h3, owner3, { action: 'resume' })
+    const wrote = h3.engine.store.writeSnapshot({ lastSeq: 1, engine: { mode: 'running' } })
+    assert.equal(wrote, false, 'inconsistent snapshot is not written')
+    h3.close()
+  }
+  section('journal integrity: human reports fold, rejected events never persist, snapshots stay consistent')
+}
+
 console.log(`\nobjective-engine selftests passed (${passed.length} sections)`)

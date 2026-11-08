@@ -152,7 +152,8 @@ export const openStore = ({ dataDir, snapshotEvery = 128, now = Date.now, pid = 
     try {
       const parsed = JSON.parse(readFileSync(snapshotFile, 'utf8'))
       if (isRecord(parsed) && typeof parsed.lastSeq === 'number' && typeof parsed.hash === 'string' && isRecord(parsed.state)) {
-        if (sha256(canonicalJson(parsed.state)) === parsed.stateHash) snapshot = parsed
+        const stateSeq = parsed.state.lastSeq
+        if (stateSeq === parsed.lastSeq && sha256(canonicalJson(parsed.state)) === parsed.stateHash) snapshot = parsed
       }
     } catch {
       snapshot = undefined
@@ -259,6 +260,9 @@ export const openStore = ({ dataDir, snapshotEvery = 128, now = Date.now, pid = 
     snapshotDue: () => sinceSnapshot >= snapshotEvery,
     /** Write the snapshot atomically (temp + fsync + rename). */
     writeSnapshot(state) {
+      // A snapshot whose folded lastSeq differs from the store's lastSeq would
+      // replay only part of the journal on the next load; skip it instead.
+      if (typeof state?.lastSeq === 'number' && state.lastSeq !== lastSeq) return false
       const payload = { schema: SCHEMA, lastSeq, hash: lastHash, writtenAt: new Date(now()).toISOString(), stateHash: sha256(canonicalJson(state)), state }
       const temp = `${snapshotFile}.tmp`
       try {

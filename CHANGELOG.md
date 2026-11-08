@@ -46,11 +46,17 @@ verification lessons of the external Ringer runner. Comparison and trust model:
   rejected request can no longer run checks. Duplicate `criterionIds` are
   deduplicated and an incomplete criteria set can never approve; verification
   refuses a dirty pinned workspace so executed evidence matches the commit.
+- Journal integrity: `core.append` validates an event against the fold
+  **before** writing it, so a fold-rejected event can never advance
+  `store.lastSeq` ahead of the folded `state.lastSeq`; snapshots whose folded
+  sequence differs are refused and ignored. A human-authority owner’s
+  objective-level status report (`item/reported` actor human) now folds instead
+  of freezing the journal.
 - The package suite now also covers verification-gate regressions
   (unauthorized/not-ready/dirty requests execute nothing; duplicate ids are
   advisory only).
 
-- The package suite is now twenty-one sections (deterministic checker pass/fail,
+- The package suite is now twenty-two sections (deterministic checker pass/fail,
   artifact stat/hash, lint/baseline, plus the dispatch-depth and human-actor
   regressions).
 

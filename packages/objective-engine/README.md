@@ -211,7 +211,7 @@ cd packages/objective-engine
 node test/run.mjs        # or: pnpm test
 ```
 
-Twenty-one sections over a fake Cordis context: boot/lock/sentinel, torn tail and
+Twenty-two sections over a fake Cordis context: boot/lock/sentinel, torn tail and
 hash chain, record completeness and human authority, admission and queue
 promotion, agent-proposed objectives, the full completion gate with dispatch
 provenance and commit pinning, mechanical completion and send-back, budgets,
@@ -221,5 +221,7 @@ outage policy and the replay paradox, the decision-rule table, fallback paths,
 the deterministic checker (executed command pass/fail, no verifier run on a
 failed preflight, artifact stat/hash, lint and baseline), the verification-gate
 regressions (authority/readiness/coverage/clean pin before any check runs), the
-dispatch-depth and human-actor regressions, and tool wiring against the registry contract (no
+journal-integrity regressions (human reports fold, rejected events never reach
+the journal, inconsistent snapshots are refused), the dispatch-depth and
+human-actor regressions, and tool wiring against the registry contract (no
 external dependency needed).
