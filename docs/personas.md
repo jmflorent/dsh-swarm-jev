@@ -1,13 +1,14 @@
 # Role personas
 
 The [`dsh-personas`](../packages/dsh-personas) bundle (`@local/dsh-personas`
-1.0.0) adds five **agent presets** to DSH. A preset is a named capability
+1.1.0) adds seven **agent presets** to DSH: five role presets and the two
+session types the objective engine dispatches to. A preset is a named capability
 composition: the New-session picker offers it, the Settings roster lists it, and
 the sessions that select it mount exactly the tool rows the preset declares.
 
 The bundle does not modify or replace the shipped `standard`, `ptc`, `minimal`,
-or `cordis` presets. It inserts five role-shaped presets **after** them with
-orders 10–14, so the built-ins keep their positions.
+or `cordis` presets. It inserts the presets **after** them with orders 10–16,
+so the built-ins keep their positions.
 
 | Preset id | Name | Order | One line |
 |---|---|---|---|
@@ -16,10 +17,12 @@ orders 10–14, so the built-ins keep their positions.
 | `writer` | Writer | 12 | Writes and edits prose and documents, matching audience and house style |
 | `reviewer` | Reviewer | 13 | Independently validates a change, runs the checks, reports blocking defects with evidence |
 | `researcher` | Researcher | 14 | Gathers evidence from primary sources, separates fact from inference, reports with citations |
+| `objective-manager` | Objective manager | 15 | Owns an objective's plan: plans and dispatches work orders through the objective engine, never completes its own objective |
+| `verifier` | Verifier | 16 | Verifies one pinned commit against an objective's criteria and reports per-criterion evidence; read-only on source |
 
 ---
 
-## The five presets
+## The seven presets
 
 ### `orchestrator` — Orchestrator
 
@@ -110,28 +113,67 @@ search timeout), todo, ask-user, `present`, skills, compaction. No
 
 ---
 
+### `objective-manager` — Objective manager
+
+**Use it when** the objective engine drives the work. The manager session
+owns an objective's *plan*, not its completion: it treats engine wakeups as
+work orders, plans work orders with `objective_plan`, asks `swarm_assign` which
+persona runs each stage, dispatches through `objective_dispatch` (so the engine
+records provenance and starts the child with that persona's preset), accepts or
+rejects every report, and requests verification with `objective_verify`. It
+never verifies, never records a verdict, and never completes; judgment criteria
+go to the human through `ask_user_question` and `objective_ack`.
+
+**Prompt policy.** Objectives are created only by the human. Ambiguous messages
+get at most one `objective_classify` proposal and are then handled through
+explicit tools or escalated. Engine denials are never routed around.
+
+**Tools.** Files, search, bash, web, todo, ask-user, present, skills, and
+compaction — but **no subagent or workflow tools**: every dispatch goes
+through the engine. The host-plane `objective_*`, `swarm_*`, and `systemone_*`
+tools are visible without preset rows.
+
+### `verifier` — Verifier
+
+**Use it when** the engine starts it: `objective_verify` spawns a verifier
+child with this preset (falling back to `reviewer` when it is not installed)
+and a brief naming the verification id, the criteria, and the pinned commit.
+
+**Prompt policy.** Check HEAD and `git status --porcelain` first; report
+inconclusive on a moved commit or a dirty workspace. Run every named command,
+hash every named artifact, cite what was inspected, and finish with exactly one
+`objective_verdict`. Approve only when every mechanical criterion passed.
+
+**Tools.** Read-only on source: `tool-fs` with `read`, `readImage`, `write`
+(evidence and fixtures only, enforced by the systemone `presets.verifier`
+policy in the example patch), `edit: false`; search; bash; web; todo; ask-user;
+skills; compaction. The policy also denies `git checkout/reset/stash` so the
+verifier cannot move the ground under itself.
+
+---
+
 ## Tool surface at a glance
 
 Legend: ✓ mounted; — not mounted; config notes in parentheses.
 
-| Row | orchestrator | architect | writer | reviewer | researcher |
-|---|---|---|---|---|---|
-| `persona` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `agent-instructions` (workspace instructions) | ✓ | ✓ | — | ✓ | — |
-| `time-context` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `tool-fs` (read/write/edit) | ✓ (`applyPatch:false`) | ✓ (`applyPatch:false`) | ✓ (`applyPatch:false`) | ✓ (`read`,`readImage`,`write`,`edit`, no patch) | ✓ (`applyPatch:false`) |
-| `tool-fs-search` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `tool-bash` | ✓ | ✓ | — | ✓ | ✓ |
-| `tool-web` | ✓ (fetch) | ✓ (fetch) | ✓ (fetch, 60 s search) | ✓ (fetch) | ✓ (fetch, 60 s search) |
-| `tool-todo` | ✓ (parallel) | ✓ | ✓ | ✓ | ✓ (parallel) |
-| `tool-ask-user` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `present` | — | ✓ | ✓ | — | ✓ |
-| `skill-filesystem` + `tool-skill` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `tool-subagent-control` | ✓ | — | — | — | — |
-| `tool-subagent` (spawn) | ✓ | — | — | — | — |
-| `tool-subagent` (fork) | ✓ | — | — | — | — |
-| `workflow` engine + tool | ✓ | — | — | — | — |
-| compaction group (basic + `/compact`) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Row | orchestrator | architect | writer | reviewer | researcher | objective-manager | verifier |
+|---|---|---|---|---|---|---|---|
+| `persona` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `agent-instructions` (workspace instructions) | ✓ | ✓ | — | ✓ | — | ✓ | ✓ |
+| `time-context` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `tool-fs` (read/write/edit) | ✓ (`applyPatch:false`) | ✓ (`applyPatch:false`) | ✓ (`applyPatch:false`) | ✓ (`read`,`readImage`,`write`,`edit`, no patch) | ✓ (`applyPatch:false`) | ✓ (`applyPatch:false`) | ✓ (`read`,`readImage`,`write`, `edit:false`, no patch) |
+| `tool-fs-search` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `tool-bash` | ✓ | ✓ | — | ✓ | ✓ | ✓ | ✓ |
+| `tool-web` | ✓ (fetch) | ✓ (fetch) | ✓ (fetch, 60 s search) | ✓ (fetch) | ✓ (fetch, 60 s search) | ✓ (fetch) | ✓ (fetch) |
+| `tool-todo` | ✓ (parallel) | ✓ | ✓ | ✓ | ✓ (parallel) | ✓ (parallel) | ✓ |
+| `tool-ask-user` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `present` | — | ✓ | ✓ | — | ✓ | ✓ | — |
+| `skill-filesystem` + `tool-skill` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `tool-subagent-control` | ✓ | — | — | — | — | — | — |
+| `tool-subagent` (spawn, `allowedAgentPresets`) | ✓ | — | — | — | — | — | — |
+| `tool-subagent` (fork) | ✓ | — | — | — | — | — | — |
+| `workflow` engine + tool | ✓ | — | — | — | — | — | — |
+| compaction group (basic + `/compact`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Shared by every persona: the preset's own `persona` row (tool guidance and
 runtime context are kept because all rows use `complete: false`), `time-context`,
@@ -150,12 +192,14 @@ and an isolated compaction group so long sessions stay usable.
   and team tools) remain visible without being re-declared inside a preset.
   This is why the bundles are independent: personas shape *capabilities*,
   systemone adds *host tools and decisions*.
-- **Subagents inherit.** A child spawned with `subagent` or `subagent_fork`
-  inherits the parent's preset unless the `tool-subagent` row configures
-  `agentPreset` (and `allowedAgentPresets` to constrain the choice). The shipped
-  personas bundle leaves that unset. Swarm mode works around this by passing the
-  assigned persona's operating instructions inside the subagent brief; it does
-  not switch the child's preset.
+- **Subagents inherit unless named.** A child spawned with `subagent` or
+  `subagent_fork` inherits the parent's preset unless the `tool-subagent` row
+  configures `agentPreset` (and `allowedAgentPresets` to constrain the choice).
+  The orchestrator's spawn row sets `allowedAgentPresets` to the six other
+  presets and no default, so the model may pass `agent_preset` to run a child
+  under a role preset; omitting it still inherits. The objective engine's own
+  dispatch (`objective_dispatch`) always starts the child under the assigned
+  persona's preset.
 - **Per-preset decision configuration.** The systemone bundle keys its mandatory
   overrides by **preset id** (`presets.orchestrator`, `presets.reviewer`, …) and
   resolves the id through the preset registry. Renaming a preset id therefore
@@ -219,7 +263,7 @@ Rules of thumb:
 Existing sessions keep the composition they started with; start a new session
 to see the change.
 
-### Add a sixth preset
+### Add an eighth preset
 
 Append one `insert` row to the bundle's patch list. This is the minimum shape
 (choose real rows from the table above):
@@ -232,7 +276,7 @@ Append one `insert` row to the bundle's patch list. This is the minimum shape
         id: operator
         name: Operator
         description: Runs a documented procedure step by step and records the evidence.
-        order: 15
+        order: 17
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
@@ -281,8 +325,9 @@ Then:
 ### Remove a preset
 
 Delete its `preset-<id>` entry and reinstall. The bundle uninstall path also
-removes all five; sessions already using one keep their composition until they
-end. If you remove a preset that the systemone row references, remove that
+removes all seven; sessions already using one keep their composition until they
+end. If you remove `verifier`, set `verifierPresets` on the objective-engine row
+to a preset that still exists. If you remove a preset that the systemone row references, remove that
 `presets.<id>` override too, or leave it inert (it is only consulted for
 sessions whose preset resolves to that id).
 

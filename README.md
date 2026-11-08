@@ -9,14 +9,15 @@ bundles with a `cordis.patch.yml`, plain ES modules, and Markdown.
 
 | Part | Package / location | What it gives you | Status |
 |---|---|---|---|
-| **Role personas** | [`packages/dsh-personas`](packages/dsh-personas) (`@local/dsh-personas` 1.0.0) | Five agent presets — orchestrator, architect, writer, reviewer, researcher — layered over the shipped DSH presets | Stable |
-| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.2) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** (with objectives when the engine is composed) | Stable |
-| **Objective/progress orchestrator** | [`packages/objective-engine`](packages/objective-engine) (`@local/objective-engine` 0.1.0) + [`docs/objective-engine.md`](docs/objective-engine.md) | A working MVP control plane: durable objective/progress journal, admission and round budgets, an independent verification gate, advisory Mammoth tagging, and a driver that drops progress prompts over time | **MVP implemented** — full hardening design remains |
+| **Role personas** | [`packages/dsh-personas`](packages/dsh-personas) (`@local/dsh-personas` 1.1.0) | Seven agent presets — orchestrator, architect, writer, reviewer, researcher, plus the objective manager and verifier session types — layered over the shipped DSH presets | Stable |
+| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.3) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** (with objectives when the engine is composed) | Stable |
+| **Objective/progress orchestrator** | [`packages/objective-engine`](packages/objective-engine) (`@local/objective-engine` 0.2.0) + [`docs/objective-engine.md`](docs/objective-engine.md) | The control plane: hash-chained objective/progress journal, admission and measured load, six budgets, event-driven wakeups with a pre-step fence, engine-started workers and verifier with commit pinning, a verifier-gated completion with human acknowledgment, a kill switch, and an advisory Mammoth classifier | **Phase 1 implemented** — Phase 2 hardening (worktrees, merge queue, cadence) remains design |
 
-> The objective engine now ships as a working MVP in
-> [`packages/objective-engine`](packages/objective-engine). The full design —
-> commit pinning, worktree isolation, human acknowledgment, cross-process
-> durability — is still a plan and is documented in
+> The objective engine implements Phase 1 of the design in
+> [`packages/objective-engine`](packages/objective-engine) and is covered by a
+> nine-condition test suite. Phase 2 — per-objective worktrees with a merge
+> queue, schedule-driven cadence, an acknowledgment page, cross-process leases,
+> and a soak test — is still a plan, documented in
 > [`docs/design/`](docs/design/objective-progress-swarm-design.md).
 
 ---
@@ -44,9 +45,11 @@ This kit adds three things on top of that:
    executes each stage. Every other session stays inert, so a lead session
    cannot block itself.
 
-The design in `docs/design/` extends that last piece into an objective/progress
-agent type: a control-plane plugin that tracks objectives, work items, budgets,
-verification, wakeups, and a human acknowledgment gate.
+The objective engine turns that last piece into an objective/progress agent
+type: a control-plane plugin that tracks objectives and work items, bounds them
+with budgets and admission, wakes the manager session only on events, starts
+workers and the verifier itself, and completes an objective only through an
+independent verdict plus a human acknowledgment for judgment criteria.
 
 ---
 
@@ -80,7 +83,7 @@ verification, wakeups, and a human acknowledgment gate.
                                        | self-hosted, e.g. Jev     |
                                        +---------------------------+
 
-  Objective/progress orchestrator (design only, see docs/orchestrator.md)
+  Objective/progress orchestrator (Phase 1 implemented, see docs/objective-engine.md)
   +-----------------------------------------------------------------------+
   | @local/objective-engine control plane                                 |
   | objective registry - journal - admission - budgets - wakeup pump -    |
@@ -121,11 +124,15 @@ against). See [Compatibility](#compatibility).
      API key:   stored by DSH's credential service under SYSTEMONE_API_KEY
 
 5. Use it
-   New session -> preset "Orchestrator"
-     objective_system { action: "resume" }     # arms the driver (it boots paused)
-     objective_create { statement, criteria }    # the engine starts prompting
-   Or, for swarm routing: ask the orchestrator to enter swarm mode
-   (it calls swarm_enter), then let swarm_assign route stages to personas
+   New session -> preset "Objective manager"
+     you:  "resume the objective engine"        # it calls objective_system resume (boots paused)
+     you:  "objective: ship X; criteria: tests pass, docs updated"
+           -> objective_create (objectives are human-created, in your turn)
+   The engine wakes the manager on events; it enters swarm mode, plans work
+   orders, asks swarm_assign for personas, dispatches through objective_dispatch,
+   and requests verification. You acknowledge judgment criteria with
+   objective_ack when asked. The plain "Orchestrator" preset still works for
+   swarm routing without the engine.
 ```
 
 On a fresh install nothing is enforced: `mode: shadow` computes decisions and
@@ -160,9 +167,9 @@ a complete, credential-free profile patch.
 | DeepSeek Harness | **0.2.2-rc.1** (tested) |
 | DSH profile team packages | 0.2.2-rc.1 |
 | Bundled Node / pnpm shipped with DSH | Node 24.21.0 / pnpm 11.28.5 |
-| `@local/dsh-personas` | 1.0.0 — no runtime dependencies |
-| `@local/systemone` | 0.2.2 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; declares `@deepseek-ai/dsh-tools` 0.2.1-rc.3, `@deepseek-ai/schemastery` ~3.18.5; browser half at `lib/client.js` (`platform: web`) |
-| `@local/objective-engine` | 0.1.0 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; no runtime dependencies |
+| `@local/dsh-personas` | 1.1.0 — no runtime dependencies |
+| `@local/systemone` | 0.2.3 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; declares `@deepseek-ai/dsh-tools` 0.2.1-rc.3, `@deepseek-ai/schemastery` ~3.18.5; browser half at `lib/client.js` (`platform: web`) |
+| `@local/objective-engine` | 0.2.0 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; no runtime dependencies; uses the host `agents`, `agentPresets`, `subagents`, `subprocess`, `workingDirectory`, `tokenMeter`, and `systemone` services with typed degradation |
 
 DSH's plugin API is young. Treat the versions above as the tested set: if you
 run a different DSH release, install in `shadow` mode first and check
@@ -214,18 +221,22 @@ dsh-swarm-jev/
 ├── VERSION
 ├── .gitignore
 ├── packages/
-│   ├── dsh-personas/         @local/dsh-personas bundle
-│   └── dsh-systemone/        @local/systemone bundle (tools + layer + Settings UI)
-│       └── test/             mock decision endpoint + selftest suite
+│   ├── dsh-personas/         @local/dsh-personas bundle (seven presets)
+│   ├── dsh-systemone/        @local/systemone bundle (tools + layer + Settings UI)
+│   │   └── test/             mock decision endpoint + selftest suite
+│   └── objective-engine/     @local/objective-engine control plane
+│       ├── lib/              store, fold, transition, admission, pump, dispatch, verify, classify, prompts, status, authority, tools
+│       └── test/             fake Cordis context + nine-condition suite
 ├── docs/
 │   ├── personas.md           the five presets and how to customize them
 │   ├── decision-system.md    tools, decisions, modes, swarm mode, Settings
-│   ├── orchestrator.md       swarm orchestrator + objective/progress design summary
+│   ├── orchestrator.md       swarm orchestrator + objective/progress status by design item
+│   ├── objective-engine.md   objective engine reference (records, states, driver, classifier)
 │   ├── install.md            installing on another DSH installation
 │   ├── configuration.md      every configuration field, defaults, precedence
 │   ├── troubleshooting.md    failure modes and diagnostics
 │   └── design/
-│       └── objective-progress-swarm-design.md   sanitized full design (design only)
+│       └── objective-progress-swarm-design.md   sanitized full design (Phase 2 items remain design)
 └── examples/
     └── profile-patch.example.yml   generic two-bundle profile patch
 ```
@@ -236,7 +247,8 @@ dsh-swarm-jev/
 |---|---|
 | [`docs/personas.md`](docs/personas.md) | Understand, choose, compose, or customize the five role presets |
 | [`docs/decision-system.md`](docs/decision-system.md) | Understand the System One tools, every decision, the modes, swarm mode, and the Settings screen |
-| [`docs/orchestrator.md`](docs/orchestrator.md) | Understand the swarm orchestrator today and the objective/progress design |
+| [`docs/orchestrator.md`](docs/orchestrator.md) | Understand the swarm orchestrator and which design items are implemented |
+| [`docs/objective-engine.md`](docs/objective-engine.md) | Run the objective/progress loop: records, state machines, the driver, authority, the classifier |
 | [`docs/install.md`](docs/install.md) | Install, enable, reload, verify, uninstall, and roll back on another machine |
 | [`docs/configuration.md`](docs/configuration.md) | Change a config field without breaking the layer; understand precedence and credentials |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Fix an endpoint, auth, answer, mode, Settings-page, or version problem |
@@ -246,8 +258,9 @@ dsh-swarm-jev/
 
 ## What is not in this repository
 
-- **The objective engine.** No code exists; `docs/orchestrator.md` explains the
-  design status and the Phase 0 prototype you can run with today's primitives.
+- **Phase 2 of the objective engine.** Worktree isolation with a merge queue,
+  schedule-driven cadence, an acknowledgment page, and cross-process leases are
+  design only; `docs/objective-engine.md` lists them.
 - **A decision-model server.** The bundle ships the client, not the model. The
   endpoint is yours to run; any service that implements the System One contract
   described in `docs/decision-system.md` works, and Jev-style deployments are
@@ -255,9 +268,10 @@ dsh-swarm-jev/
 - **The author's profile.** No profile patch, credential, or session data is
   included; start from the example.
 
-What *is* included beyond the bundles: the package test harness for
-`dsh-systemone` (`packages/dsh-systemone/test`, an in-process mock System One
-endpoint plus the selftest suite) and the sanitized objective-engine design.
+What *is* included beyond the bundles: the package test harnesses
+(`packages/dsh-systemone/test`, an in-process mock System One endpoint plus the
+selftest suite; `packages/objective-engine/test`, a fake Cordis context plus the
+nine-condition suite) and the sanitized objective-engine design.
 
 ---
 
@@ -275,7 +289,19 @@ pnpm test        # node test/run.mjs
 The suite exercises the tools, decision layer, deterministic policy, vision
 transport, and swarm behavior against the real package modules. It needs no DSH
 process, but it does need the package's two `@deepseek-ai/*` dependencies
-resolved (that is what `pnpm install` does). The personas bundle is
+resolved (that is what `pnpm install` does).
+
+The objective engine ships its own suite, with no dependencies at all:
+
+```bash
+cd packages/objective-engine
+node test/run.mjs
+```
+
+It runs the nine-condition matrix from the design against a fake Cordis
+context (agents, presets, subagents, subprocess) and, when the systemone
+package has `@deepseek-ai/dsh-tools` installed next to it, validates every tool
+schema with the real registry library. The personas bundle is
 configuration-only and has no test suite.
 
 ---

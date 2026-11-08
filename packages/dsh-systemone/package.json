@@ -1,6 +1,6 @@
 {
   "name": "@local/systemone",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "description": "System One tools, decision layer, and Settings page for DeepSeek Harness: typed asks, image assets, five hook-driven decisions, swarm mode, and live endpoint/credential configuration.",

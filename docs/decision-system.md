@@ -602,13 +602,19 @@ The default allow-list (`swarm.orchestratorTools`) is:
 ```text
 read, read_image, glob, grep, todo_write, ask_user_question,
 subagent, subagent_fork, workflow, present, skill,
-swarm_assign, swarm_enter, swarm_exit, systemone_ask, systemone_status
+swarm_assign, swarm_enter, swarm_exit, systemone_ask, systemone_status,
+objective_create, objective_status, objective_plan, objective_dispatch,
+objective_report, objective_verify, objective_verdict, objective_ack,
+objective_control, objective_system, objective_classify,
+send_message, list_agents, wait_agent, interrupt_agent,
+team_task_create, team_task_list, team_task_get, team_task_update
 ```
 
 Everything else is hidden from the orchestrator: it does not edit files, run
-builds or tests, or write deliverables. Workers keep the full toolset. The list
-is configurable in the profile patch; the design document recommends adding the
-team tools and future `objective_*` tools to it.
+builds or tests, or write deliverables. Workers keep the full toolset. Names
+the registry cannot resolve in a deployment (no objective engine, no team
+bundle) are filtered out before the restriction is applied, so the default list
+is safe everywhere. The list is configurable in the profile patch.
 
 ### Persona catalog
 
@@ -617,9 +623,11 @@ team tools and future `objective_*` tools to it.
 - `description` becomes the choice criterion the model sees.
 - `instructions` are returned to the orchestrator when that persona is assigned.
 
-The default catalog ships the five role personas with descriptions and
-instructions that mirror the preset prompts. Empty personas or an empty
-orchestrator tool list in the row config fall back to the built-in defaults.
+The default catalog ships the five role personas plus `objective-manager` and
+`verifier`, with descriptions and instructions that mirror the preset prompts.
+Persona ids double as the child preset ids the objective engine dispatches to.
+Empty personas or an empty orchestrator tool list in the row config fall back to
+the built-in defaults.
 
 ### What is judged in swarm mode
 
@@ -762,11 +770,11 @@ The panel polls every 3 s, pauses while the tab is hidden, refreshes on
 visibility, and offers a manual refresh button.
 
 When the [`@local/objective-engine`](../packages/objective-engine) bundle is
-also composed, the scan adds an **Objectives** block: the engine's paused/running
-state, its admission counts (active / queued / blocked / completed), and each
-open objective with its round budget. That data comes from the read-only
-`objectives` service the engine provides (`snapshot()`), projected by the same
-panel endpoint.
+also composed, the scan adds an **Objectives** block: the engine's mode, its
+counts (active / queued / verifying / blocked / completed), and each open
+objective with its state, blocked reason, and round budget. That data comes
+from the read-only `objectives` service the engine provides (`snapshot()`),
+projected by the same panel endpoint.
 
 The reverse seam is how the engine reaches Mammoth: the systemone host half
 provides a read-only `systemone` service (`decide`, `status`) for other host

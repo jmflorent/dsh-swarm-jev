@@ -13,7 +13,7 @@
 # A row here is matched to the row the bundle inserts by `id` and REPLACES its
 # `config` wholesale. That is why every deployment field is restated below.
 #
-# The personas bundle needs no profile row: it inserts its five preset rows
+# The personas bundle needs no profile row: it inserts its seven preset rows
 # itself. If you want to change a preset prompt or its tools, edit
 # packages/dsh-personas/cordis.patch.yml instead.
 
@@ -119,7 +119,11 @@
     # With mode: swarm, a session is inert until it calls swarm_enter. The
     # orchestrator then keeps only orchestratorTools; everything else is hidden.
     swarm:
-      presets: [orchestrator, architect, writer, reviewer, researcher]
+      # Membership is session-scoped (swarm_enter); there is no preset list.
+      # The orchestrator keeps only these tools while in swarm mode. The
+      # objective_* names apply when @local/objective-engine is composed and
+      # the team tools when the experimental team profile is; absent names are
+      # filtered out before the restriction is applied.
       orchestratorTools:
         - read
         - read_image
@@ -137,8 +141,28 @@
         - swarm_exit
         - systemone_ask
         - systemone_status
-      # Persona catalog the assignment question is built from. These are the
-      # built-in five; add your own id here to route a stage to a new role.
+        - objective_create
+        - objective_status
+        - objective_plan
+        - objective_dispatch
+        - objective_report
+        - objective_verify
+        - objective_verdict
+        - objective_ack
+        - objective_control
+        - objective_system
+        - objective_classify
+        - send_message
+        - list_agents
+        - wait_agent
+        - interrupt_agent
+        - team_task_create
+        - team_task_list
+        - team_task_get
+        - team_task_update
+      # Persona catalog the assignment question is built from: the five role
+      # personas plus the objective-engine pair. Add your own id to route a
+      # stage to a new role; the id doubles as the child preset id.
       personas:
         orchestrator:
           description: 'Decomposes a goal into delegable workstreams and integrates the results'
@@ -166,6 +190,20 @@
           instructions: >-
             You are the researcher. Answer from sources, not memory; separate
             what the evidence shows, what you infer, and what remains unknown.
+        objective-manager:
+          description: 'Tracks objectives and progress; files work orders and status reports, and never declares its own objective complete'
+          instructions: >-
+            You are the objective manager. Decompose the objective into work
+            orders, ask swarm_assign which persona executes each stage, dispatch
+            with objective_dispatch, file progress with objective_report, and
+            request verification with objective_verify. Never verify, never
+            record a verdict, never complete; ask the human to acknowledge.
+        verifier:
+          description: 'Independently verifies one pinned commit against an objective criteria and reports per-criterion evidence'
+          instructions: >-
+            You are an independent verifier. Run the checks yourself at the
+            pinned commit, cite command, exit code, and file hash per criterion,
+            and report approve/reject/inconclusive through objective_verdict.
 
     # --- per-preset overrides (optional) -----------------------------------
     # Keyed by preset id. `mode`, `selection.*`, `assessment.*`, and
@@ -205,20 +243,116 @@
             true: 'The call changes source, dependencies, or configuration'
             false: 'The call only reads, runs checks, or writes a fixture file'
 
+      # The engine-started verifier: evidence only. Mirrors the reviewer policy
+      # with the evidence directory added to the write allowance.
+      verifier:
+        policy:
+          default: allow
+          tools:
+            write:
+              paths:
+                allow:
+                  - '**/.objectives/evidence/**'
+                  - '**/samples/**'
+                  - '**/fixtures/**'
+                  - '**/*.csv'
+            edit:
+              paths:
+                allow:
+                  - '**/.objectives/evidence/**'
+            bash:
+              commands:
+                deny:
+                  - '(^|\s)(rm|mv|dd|truncate)\s'
+                  - '(^|\s)git\s+(commit|push|reset|clean|checkout|switch|stash)\s'
+        judge:
+          instructions: >-
+            This agent is an independent verifier. It may read anything, run
+            checks, and write evidence files under .objectives/evidence/ or
+            fixture data under samples/, fixtures/, or *.csv. It must never
+            create, edit, or delete source, configuration, or build files,
+            directly or through a shell, interpreter, script, or build step,
+            and must not move the checkout (git checkout/reset/stash).
+          boundary:
+            true: 'The call changes source, configuration, dependencies, or the checked-out commit'
+            false: 'The call only reads, runs checks, or writes evidence or fixture data'
+        selection:
+          alwaysAllow: [bash, read, grep, glob]
+
       # Add the other role presets (orchestrator, architect, writer,
-      # researcher) the same way, each with its own taxonomy and thresholds.
+      # researcher, objective-manager) the same way, each with its own taxonomy
+      # and thresholds.
 
 # ---------------------------------------------------------------------------
-# Objective engine (optional but recommended for the objective/progress loop).
-# It has no credentials and boots paused; resume from a session.
+# Objective engine: the objective/progress control plane. It has no
+# credentials, keeps its journal under $DSH_HOME/storages/objective-engine,
+# and boots PAUSED after every host start; a human resumes it from a
+# top-level session with objective_system { action: "resume" }.
+#
+# A profile row replaces the bundle row's config wholesale; every field below
+# has a code default, so you may delete the ones you do not change.
 - id: objective-engine
   name: '@local/objective-engine'
   config:
-    # enabled: true
+    enabled: true
+    # dataDir: /absolute/path            # default $DSH_HOME/storages/objective-engine
+
+    # --- authority ---------------------------------------------------------
+    # Objectives are created by a human (direct human message in a top-level
+    # session). With allowAgentProposedObjectives an agent may create a
+    # *proposed* objective that a human must approve (objective_control).
+    requireHumanAuthority: true
+    allowAgentProposedObjectives: false
+
+    # --- admission (bounds on the registry, not on load) -------------------
     maxActiveObjectives: 3
-    maxQueuedObjectives: 16
-    maxRoundsPerObjective: 12
-    progressIntervalMs: 45000
-    minWakeGapMs: 8000
-    # classification:
-    #   enabled: true
+    maxQueuedObjectives: 32
+    maxObjectivesPerOwnerSession: 3
+    maxQueueAgeMs: 604800000          # 7 days, then queue-expired
+    duplicateWindowMs: 86400000       # same owner + statement within 24h is a duplicate
+
+    # --- measured load -----------------------------------------------------
+    maxItemsPerObjective: 16
+    maxActiveItemsPerObjective: 2
+    maxInFlightItemsGlobal: 4
+    maxConcurrentVerifierRuns: 1
+    maxVerifierRunsPerObjective: 6
+    maxVerifierRunsPerObjectivePerDay: 6
+    maxDispatchesPerHour: 12
+
+    # --- per-objective budgets (creation maxima; raise per objective with
+    # objective_control budget-raise) ---------------------------------------
+    maxRoundsPerObjective: 12         # admitted engine prompts
+    maxTokensPerObjective: 2000000    # measured through ctx.tokenMeter when present
+    maxWallTimePerObjective: 86400000 # 24h from activation
+    stallTimeoutMs: 1800000           # dispatched item with no report/heartbeat
+    maxConsecutiveWorkerFailures: 3
+    maxVerificationRejects: 2
+    maxVerificationInconclusives: 2
+    maxAckAgeMs: 604800000            # awaiting-human longer than this blocks
+    ackReminderMs: 86400000           # one ack reminder per day
+
+    # --- driver timing -----------------------------------------------------
+    progressIntervalMs: 45000         # "drop a progress prompt over time"
+    minWakeGapMs: 8000                # minimum gap between prompts to one session
+    tickMs: 20000                     # sweep resolution
+
+    # --- dispatch and verification -----------------------------------------
+    subagentProvider: spawn           # provider name registered by dsh-subagent-spawn-in-process
+    workerMaxDepth: 0                 # workers cannot delegate further
+    verifierPresets: [verifier, reviewer]   # first that loads and differs from the producer
+    requireCommitPin: false           # true: objective_verify fails without a git HEAD
+    snapshotEvery: 128
+
+    # --- advisory classifier (never in the control path) -------------------
+    classificationCallsPerHour: 60
+    classification:
+      enabled: true
+      autoTag: true                   # tag incoming human messages in owner sessions
+      objectiveProbability: 0.7
+      progressProbability: 0.6
+      choiceFloor: 0.35
+      confidenceFloor: 0.3
+      margin: 0.1
+      breakerFailures: 3
+      breakerCooldownMs: 300000

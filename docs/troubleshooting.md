@@ -138,18 +138,30 @@ The objective engine is a second bundle and its driver is intentionally opt-in.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `objective_status` reports `engine.paused: true` | The engine boots paused | Call `objective_system { action: "resume" }` in the session that should run the loop |
-| Resumed, but no prompt arrives | No active objective (all queued/blocked/completed) or the owner session is not live in this process | Create/plan an objective; open the owner session; wait for its next idle edge |
-| Prompts stopped for one objective | Its round budget is exhausted; state is `blocked` with `blockedReason: "budget-exhausted"` | Create the objective with a larger `budgetRounds`, or complete/cancel it and create the next objective |
-| Nothing fires even after a child settles | The session is not the objective owner, or the engine is paused | Check the objective's `owner.sessionId`; resume the engine |
-| `objective_complete` returns `verification-required` | No `pass` verdict recorded | A different session must call `objective_verify` first |
-| `objective_verify` returns `self-verification` | The owner tried to verify its own objective | Spawn a reviewer/worker in another session and verify from there |
-| `objective_create` returns `admission-full` | Active + queued caps are full | Complete/cancel an objective, or raise `maxActiveObjectives` / `maxQueuedObjectives` |
+| `objective_status` reports `engine.mode: "paused"` | The engine boots paused after every host start | `objective_system { action: "resume" }` from a **human turn in a top-level session**; after a restart add `resumeAll: true` |
+| `objective_system resume` returns `unauthorized` | The call came from an engine wakeup, a subagent, or a turn without a direct human message | Type a message in the top-level session and call it in that turn |
+| `objective_system resume` returns `paused-sentinel` | `PAUSED` exists in the data directory | Remove the file, then resume |
+| Resumed, but no prompt arrives | No actionable objective (all queued/paused/blocked/completed), the objective is not `armed`, or the owner session is not live in this process | `objective_status`: check `state` and `armed`; `objective_control resume` a paused objective; open the owner session and wait for its idle edge |
+| Prompts stopped for one objective | A budget counter is exhausted (`blocked`, `blockedReason.code: "budget-exhausted"`, `detail` names the counter) | `objective_control { action: "budget-raise", budget: { rounds: N } }`, then `resume` |
+| `blocked: worker-failures` / `verification-failed` | Three worker failures, or two rejected/inconclusive verifications | Fix the brief or criteria, `objective_control reset-attempts` (or `edit`), then `resume` |
+| Wakeup arrived but the turn was rejected | The pre-step fence found the wakeup stale (objective changed state, disarmed, engine paused) or a duplicate | Nothing to do: the next idle edge sends a fresh prompt and no round was spent |
+| `objective_create` returns `unauthorized` | Objectives are human-created; this was an agent turn | The human writes the objective in the top-level session; or set `allowAgentProposedObjectives` and approve with `objective_control` |
+| `objective_create` returns `admission-rejected` / `duplicate-objective` / `scope-conflict` | Owner cap or queue depth, same statement within 24 h, overlapping `scope.paths` with an active objective | Complete/cancel an objective, pass `allowDuplicate`, or narrow the scope |
+| `objective_dispatch` returns `dispatch-unavailable` | No subagent service is composed in this profile | Pass `external: true`, start the child with the `subagent` tool, bind it with `objective_report { itemId, childSessionId }` |
+| `objective_dispatch` returns `admission-busy` | In-flight items, dispatch rate, or per-objective concurrency at the cap | Wait `retryAfterMs`; accept reported items first |
+| `objective_verify` returns `not-ready` | A linked work order is still queued/dispatched/reported | Accept or cancel it; `force: true` verifies without work orders |
+| Verifier child never answers | It ended without `objective_verdict` | The engine records `inconclusive`; one re-request is allowed, then `verification-failed` |
+| `objective_verdict` returns `unauthorized` | The caller is the owner, a worker, not the engine-started verifier, or shares the producer's preset | Only the verifier child answers; for `external` records use a `reviewer`/`verifier` session |
+| Verdict was approve but recorded inconclusive | `downgrade`: `wrong-commit`, `dirty-workspace`, `commit-not-reported`, `missing-evidence:c1`, `criteria-changed` | Commit the work, keep the workspace clean, cover every criterion with evidence |
+| Objective stuck in `awaiting-human` | A judgment criterion needs a human ack | `objective_ack { decision: "ack" }` or `send-back` in a human turn; after `maxAckAgeMs` it blocks |
+| `engine-degraded` | `LOCK` held by a live pid, a journal gap/hash mismatch, or a write failure | Read `engine.degraded`; stop the other host, or back up and repair `journal.jsonl` (truncate to the last good line); delete `snapshot.json` to force a full replay |
+| `classifier-unavailable` / `classifier-circuit-open` / `classifier-rate-limited` | The decision endpoint failed, the breaker is open, or the hourly cap is reached | Deterministic tools keep working; check `systemone_status`; the breaker closes after `breakerCooldownMs` |
 | No Objectives block in the Swarm panel | The objective-engine bundle is not installed/enabled, or the engine row failed to load | Check the sidebar Plugins page; `objective_status` tells you whether the tools exist |
-| Journal cannot be read at startup | A torn line from a crash is truncated automatically; a corrupt non-tail event is left in place and the load stops | Back up `journal.jsonl`, inspect the reported line; the engine never guesses at damaged state |
 
-The journal lives at `$DSH_HOME/storages/objective-engine/journal.jsonl`. The
-engine logs `[objective-engine] ready · journal=… · paused=…` when it loads.
+The data lives in `$DSH_HOME/storages/objective-engine/` (`journal.jsonl`,
+`advisory.jsonl`, `snapshot.json`, `LOCK`, optional `PAUSED`). The engine logs
+`[objective-engine] ready · mode=… · journal=…` with the restart reconciliation
+counts when it loads.
 
 ---
 

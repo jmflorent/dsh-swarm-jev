@@ -8,53 +8,97 @@ This file tracks the repository (the bundles and their documentation), not the
 DeepSeek Harness release it runs on. See
 [Compatibility](README.md#compatibility) for the supported DSH version.
 
-## [Unreleased]
+## [0.2.0] — 2026-11-07
+
+The objective/progress orchestrator reaches Phase 1 of the design: the engine
+is a full control plane, the two session types ship as presets, and a
+nine-condition test suite pins the completion gate.
 
 ### Added
 
-- `packages/dsh-systemone` — a live **Swarm** panel in the right sidebar
-  (`lib/client.js`): active swarm sessions with preset and session id, the
-  persona catalog with `swarm_assign` counts, the recent decision feed, the
-  counters, and the live decision plane. It auto-opens once when a session
-  enters swarm mode and collapses with the sidebar. Data comes from the
-  authenticated `GET /systemone/panel.json` snapshot route, which reports
-  decision metadata only and refuses unauthenticated or cross-origin requests.
-
-- `packages/objective-engine` — `@local/objective-engine` 0.1.0, a working MVP
-  objective/progress control plane: durable journal, objectives with criteria
-  and round budgets, work orders and status reports, an independent verification
-  gate, admission limits with a durable queue, advisory Mammoth classification
-  (explicit and automatic), an event-driven progress-prompt driver, and a
-  paused-by-default kill switch. Includes the package selftest suite.
-- `packages/dsh-systemone` — the right-sidebar Swarm panel gains an
-  **Objectives** block (paused state, admission counts, objectives with round
-  budgets) when the objective engine is composed; the decision-plane seam
-  (`ctx.provide('systemone')`) lets the engine ask Mammoth without duplicating
-  the client.
-- `docs/objective-engine.md` — the MVP reference.
+- `packages/objective-engine` — `@local/objective-engine` 0.2.0, rebuilt in
+  the design's module layout (`store`, `fold`, `transition`, `admission`,
+  `pump`, `dispatch`, `verify`, `classify`, `prompts`, `status`, `authority`,
+  `tools`):
+  - a hash-chained `opm/v1` command journal validated from genesis on every
+    load, with a periodic snapshot, a single-writer `LOCK`, a `PAUSED`
+    sentinel, torn-tail repair, and a degraded (read-only) mode on gaps or
+    write failures; classifier proposals live in a separate advisory log that
+    the fold never reads;
+  - complete objective records: typed criteria (`command`, `artifact`,
+    `human-ack`, `evidence`) with `requiresHumanAck`, `criteriaVersion`,
+    priority, `scope.paths`, six budget counters, `armed`, and the closed state
+    machine (`proposed`, `queued`, `active`, `paused`, `verifying`,
+    `awaiting-human`, `blocked`, `completed`, `cancelled`);
+  - work items with acceptance, criterion links, dispatch provenance,
+    evidence, heartbeats, stall detection, and terminal failures; verification
+    records with commit pinning (`git rev-parse HEAD` / `git status` through
+    `ctx.subprocess`), per-criterion evidence coverage, advisory subsets, and
+    `superseded` on criteria edits or send-back;
+  - execution-time authority: creation, approval, control, ack, and resume
+    require a direct human message in the open turn of a top-level session;
+    plans, dispatches, and verification requests require the owner; item
+    reports require the assigned child; verdicts require the engine-started
+    verifier (or, without a subagent service, a non-producer session with a
+    different preset);
+  - admission and measured load: per-owner caps, duplicate statements, scope
+    conflicts, in-flight items, dispatch rate, verifier backlog and per-day
+    runs, backpressure, an `engine/overloaded` signal, fairness with aging;
+  - the serialized pump with a priority order (ack, verdict, failure, work,
+    blocked, plan), one outstanding wakeup per session, versioned prompt
+    templates, and an `agent/pre-step` fence that admits (consuming a round),
+    supersedes (human message wins), or rejects (stale) engine prompts;
+  - engine-started workers (`ctx.subagents.startActivation` with the persona's
+    preset, `maxDepth` 0, the owner's working directory) and verifier
+    (`verifierPresets`, never the producer's preset), settlement from
+    `subagent/end`, the manager-driven fallback (`external: true`,
+    `objective_report childSessionId`);
+  - the kill switch (`objective_system pause`, `PAUSED`, the `objectives`
+    service's `pauseAll`): cancels children with the `hook` cause, expires
+    wakeups, cancels dispatched items, survives restart; restart reconciliation
+    fails dispatched items, marks requested verifications inconclusive, pauses
+    and disarms active objectives, and never wakes anything at boot;
+  - the advisory classifier with the design's three questions, the
+    deterministic decision rule and thresholds, two-call hysteresis, an hourly
+    rate cap, a circuit breaker, model id and latency in every proposal, and
+    auto-tagging of incoming human messages;
+  - eleven tools: `objective_create`, `objective_status`, `objective_plan`,
+    `objective_dispatch`, `objective_report`, `objective_verify`,
+    `objective_verdict`, `objective_ack`, `objective_control`,
+    `objective_system`, `objective_classify`, whose parameter schemas validate
+    with `@deepseek-ai/dsh-tools`;
+  - `test/`: a fake Cordis context and a fifteen-section suite covering the
+    nine conditions, restart and replay determinism, the fence, coalescing,
+    the kill switch, the classifier outage policy, the replay paradox, and the
+    fallback paths.
+- `packages/dsh-personas` — 1.1.0: the `objective-manager` (order 15, no
+  subagent tools; dispatches through the engine) and `verifier` (order 16,
+  read-only on source) presets; the orchestrator's spawn tool gains
+  `allowedAgentPresets` (no default, so inheritance is unchanged).
+- `packages/dsh-systemone` — 0.2.3: `objective-manager` and `verifier` in the
+  default `swarm.personas` catalog; the eleven `objective_*` tools and the team
+  tools in the default `swarm.orchestratorTools`; the sidebar Objectives block
+  shows verifying/awaiting counts, blocked reasons, and the engine mode.
+- `examples/profile-patch.example.yml` — the full objective-engine row, the
+  seven-persona catalog, the extended allow-list, and a `presets.verifier`
+  policy and judge.
+- Documentation: `docs/objective-engine.md` rewritten as the reference; the
+  package README is the operator runbook; orchestrator, configuration,
+  personas, install, troubleshooting, and decision-system pages updated.
 
 ### Changed
 
-- `packages/dsh-systemone` — version 0.2.2: the swarm orchestrator allow-list
-  now includes the `objective_*` tools and filters unresolvable optional tool
-  names before applying the restriction.
-
-### Fixed
-
-- `packages/dsh-personas` — the five custom presets failed to load on DSH
-  0.2.2-rc.1 because two mounted plugins require configuration the bundle did
-  not set: `tool-fs-search.sampleOverCapGlobResults` and
-  `tool-todo.allowParallelInProgress`. Both are now supplied per preset, so all
-  nine presets (four shipped plus five custom) load cleanly.
+- The objective engine's `objective_complete` and `objective_cancel` tools are
+  gone: completion is engine-only (verifier approval, then a human ack for
+  judgment criteria) and cancellation is `objective_control { action: "cancel" }`.
+  `objective_verify` now *requests* verification; the verifier answers with
+  `objective_verdict`. Status reports a `mode` (`paused` / `running` /
+  `degraded`) instead of a boolean.
+- The example patch no longer sets the retired `swarm.presets` field.
 
 ### Removed
 
-- `packages/dsh-systemone` — removed configuration fields the runtime never
-  read: `swarm.presets` (swarm membership is `swarm_enter` only), `budgetMs`,
-  `loopDetection.maxSubjects`, and `skills.routingHints`. Swarm enforcement is
-  session-scoped, so no preset list is needed. Schemastery passes unknown
-  profile-patch keys through, so a stale patch that still sets these fields is
-  ignored rather than rejected. Package version: `0.2.1`.
+- `packages/objective-engine/lib/journal.js` (replaced by `lib/store.js`).
 
 ## [0.1.0] — 2026-11-07
 

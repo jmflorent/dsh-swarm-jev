@@ -23,7 +23,7 @@ shipped with DSH.
 | The DSH-provided Node and pnpm | Nothing to install; the plugin manager and `dsh plugin` use them |
 | A directory that will keep the bundles | Do not install from a temporary folder; profile dependencies are `link:` references to the path you choose |
 | A reachable System One decision endpoint | Only for `dsh-systemone`; personas work without it |
-| Optional: the team bundle | `@deepseek-ai/dsh-experimental-agent-team-profile` for the Phase 0 objective workflow |
+| Optional: the team bundle | `@deepseek-ai/dsh-experimental-agent-team-profile` for the Phase 0 objective workflow and the team tools in the swarm allow-list |
 | Network access for installs | pnpm must resolve the systemone bundle's two dependencies (`@deepseek-ai/dsh-tools@0.2.1-rc.3`, `@deepseek-ai/schemastery@~3.18.5`) from a registry or a local store; the personas bundle has no dependencies |
 | A Web client, for the Settings page | The **Settings → Decision model** page is a browser plugin; headless deployments can configure the same fields in the profile patch |
 
@@ -242,12 +242,12 @@ they started with.
 | `dsh --version` | `0.2.2-rc.1` |
 | `node --version` inside the profile's install | `>= 24` (the bundle declares `engines.node`) |
 | `dsh --profile <name> --dump-config` | The two bundle rows (`preset-*` rows and the `systemone` row) appear in order; the profile patch row overrides them |
-| New-session preset picker | Five new presets: Orchestrator, Architect, Writer, Reviewer, Researcher |
-| Settings → Agent presets | Same five, after the shipped presets |
+| New-session preset picker | Seven new presets: Orchestrator, Architect, Writer, Reviewer, Researcher, Objective manager, Verifier |
+| Settings → Agent presets | Same seven, after the shipped presets |
 | Settings → Decision model | Endpoint, model, timeout, mode, API key fields (after the systemone bundle loads and the Web client is running) |
 | `systemone_status({ probe: true })` in a session | `{ ok: true, probe: { ok: true, answers: { probe: { noul } } } }`, `auth` reflects the key, `layer.mode` matches configuration |
-| `objective_status` in a session | `{ ok: true }` with `engine.paused: true` (the engine boots paused), limits, and zero counters |
-| `objective_system` `{ action: "resume" }` then `pause` | `ok: true` for both; resume reports `paused: false`, pause reports `paused: true` |
+| `objective_status` in a session | `{ ok: true }` with `engine.mode: "paused"` (the engine boots paused), `engine.degraded: null`, limits, load, and zero counts |
+| `objective_system` `{ action: "resume" }` then `pause`, typed by you in a top-level session | `ok: true` for both; resume reports `paused: false` and `engine.mode: "running"`, pause reports `paused: true` |
 | Right sidebar → Swarm panel | An **Objectives** block appears when the engine is composed (paused state, counts, objectives) |
 | Plugins (sidebar) | All three bundles listed and enabled |
 
@@ -261,7 +261,9 @@ missing, check `layer.mode` and whether the bundle loaded (Troubleshooting).
 - **The personas bundle** has no dependencies. It is pure YAML plus a
   `package.json`.
 - **The objective engine bundle** has no runtime dependencies either: Node 24
-  built-ins and the harness tool registry only. It also needs no Web client; the
+  built-ins and the harness services (`tools`, `agents`, `agentPresets`,
+  `subagents`, `subprocess`, `workingDirectory`, `tokenMeter`, `systemone`),
+  each used with typed degradation when absent. It needs no Web client; the
   Objectives block in the Swarm panel appears only when the systemone bundle is
   composed.
 - **The systemone bundle** imports two packages at runtime:

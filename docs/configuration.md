@@ -174,8 +174,8 @@ selection:
 
 | Field | Default | Meaning |
 |---|---|---|
-| `orchestratorTools` | 16 coordination tools (see below) | Tools the orchestrator keeps while in swarm mode; everything else is hidden from it. |
-| `personas` | five role personas | Persona catalog for `swarm_assign`: id → `{ description, instructions }`. An empty map falls back to the built-in catalog. |
+| `orchestratorTools` | 35 names (see below) | Tools the orchestrator keeps while in swarm mode; everything else is hidden from it. Names the registry cannot resolve are filtered out before the restriction is applied. |
+| `personas` | seven personas | Persona catalog for `swarm_assign`: id → `{ description, instructions }`. The five role personas plus `objective-manager` and `verifier`. An empty map falls back to the built-in catalog. |
 
 Swarm membership is a per-session mode: `mode: swarm` affects only sessions
 that entered with `swarm_enter`. There is no preset list; the retired
@@ -187,7 +187,12 @@ Default `orchestratorTools`:
 ```text
 read, read_image, glob, grep, todo_write, ask_user_question,
 subagent, subagent_fork, workflow, present, skill,
-swarm_assign, swarm_enter, swarm_exit, systemone_ask, systemone_status
+swarm_assign, swarm_enter, swarm_exit, systemone_ask, systemone_status,
+objective_create, objective_status, objective_plan, objective_dispatch,
+objective_report, objective_verify, objective_verdict, objective_ack,
+objective_control, objective_system, objective_classify,
+send_message, list_agents, wait_agent, interrupt_agent,
+team_task_create, team_task_list, team_task_get, team_task_update
 ```
 
 Customizing the catalog:
@@ -324,9 +329,10 @@ Everything not in the table above is profile-patch-only. See
 
 ## 3. `@local/dsh-personas` configuration
 
-The bundle has no top-level config. It declares five preset rows. Each row is an
-`@deepseek-ai/dsh-agent-preset` instance whose `config.plugins` is the session's
-whole capability set.
+The bundle has no top-level config. It declares seven preset rows — the five
+role presets plus `objective-manager` and `verifier` for the objective engine.
+Each row is an `@deepseek-ai/dsh-agent-preset` instance whose `config.plugins`
+is the session's whole capability set.
 
 ### 3.1 Preset row schema
 
@@ -341,30 +347,32 @@ whole capability set.
     plugins: [...]
 ```
 
-### 3.2 Row types used by the five presets
+### 3.2 Row types used by the seven presets
 
 | Row `name` | Config keys used | Notes |
 |---|---|---|
 | `@deepseek-ai/dsh-persona` | `prefix` | Role instructions; keep `complete: false` semantics (the default) so tool guidance and runtime context remain |
 | `@deepseek-ai/dsh-agent-instructions` | `maxBytes: 65536` | Loads workspace instruction files; absent in writer/researcher |
 | `@deepseek-ai/dsh-time-context` | — | Date/time context |
-| `@deepseek-ai/dsh-tool-fs` | `read`, `readImage`, `write`, `edit`, `applyPatch` | All presets set `applyPatch: false`; reviewer enables read/write/edit without patch |
+| `@deepseek-ai/dsh-tool-fs` | `read`, `readImage`, `write`, `edit`, `applyPatch` | All presets set `applyPatch: false`; reviewer enables read/write/edit without patch; verifier sets `edit: false` |
 | `@deepseek-ai/dsh-tool-fs-search` | — | `glob`/`grep` |
 | `@deepseek-ai/dsh-tool-bash` | — | Shell; absent in writer |
 | `@deepseek-ai/dsh-tool-web` | `fetch`, `searchTimeoutMs` | Writer/researcher set a 60 s search timeout |
 | `@deepseek-ai/dsh-tool-todo` | `allowParallelInProgress` | Orchestrator/researcher allow parallel in-progress items |
 | `@deepseek-ai/dsh-tool-ask-user` | — | Human interaction |
-| `@deepseek-ai/dsh-tool-present` | — | Deliverable presentation; absent in orchestrator/reviewer |
+| `@deepseek-ai/dsh-tool-present` | — | Deliverable presentation; absent in orchestrator/reviewer/verifier |
 | `@deepseek-ai/dsh-skill-filesystem` + `@deepseek-ai/dsh-tool-skill` | — | Skill catalog and tool |
 | `@deepseek-ai/dsh-tool-subagent-control` | — | Subagent inspection/control |
-| `@deepseek-ai/dsh-tool-subagent` | `provider`, `toolName`, `modelSelection`, `modelDiscovery` | Orchestrator only; `provider: spawn` and `provider: fork` on two rows |
+| `@deepseek-ai/dsh-tool-subagent` | `provider`, `toolName`, `modelSelection`, `modelDiscovery`, `allowedAgentPresets` | Orchestrator only; `provider: spawn` and `provider: fork` on two rows. The spawn row allows `agent_preset` ∈ architect, writer, researcher, reviewer, verifier, objective-manager (no default: omission still inherits) |
 | `@deepseek-ai/dsh-workflow-ptc` + `@deepseek-ai/dsh-tool-workflow` | `provider: spawn` | Inside the `delegation` group (orchestrator only) |
 | `cordis:group` + compaction rows | `isolate.compaction: true` | Every preset has one; `compaction-basic` + `command-compact` |
 
 The underlying `tool-subagent` supports `agentPreset` and
-`allowedAgentPresets` in 0.2.2-rc.1. The bundle leaves them unset, so a child
-inherits its parent's preset. Set them on the orchestrator's subagent rows if
-you want specialized children without swarm mode.
+`allowedAgentPresets` in 0.2.2-rc.1. The bundle sets `allowedAgentPresets` on
+the orchestrator's spawn row (the objective engine's manager-driven fallback
+dispatch needs it) and leaves `agentPreset` unset, so a child still inherits
+its parent's preset unless the model names one. The `objective-manager` preset
+mounts no subagent tools at all: its dispatches go through `objective_dispatch`.
 
 ### 3.3 Changing a preset
 
@@ -510,7 +518,8 @@ Reload requirements:
 
 ## 7. `@local/objective-engine` configuration
 
-The row:
+The row (every field optional; the engine runs on defaults without a profile
+row; a profile row replaces the bundle row's config wholesale):
 
 ```yaml
 - id: objective-engine
@@ -518,34 +527,101 @@ The row:
   config:
     maxActiveObjectives: 3
     maxRoundsPerObjective: 12
+    verifierPresets: [verifier, reviewer]
 ```
 
-Every field is optional; the engine runs on defaults without a profile row.
+### 7.1 Authority and admission
 
 | Field | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | When false the driver and tools refuse work; the registry still loads. |
-| `dataDir` | `$DSH_HOME/storages/objective-engine` | Directory holding `journal.jsonl`. |
-| `maxActiveObjectives` | `3` | Objectives in `active` state; more are queued. |
-| `maxQueuedObjectives` | `16` | Durable queue depth; beyond both caps creation is rejected `admission-full`. |
-| `maxRoundsPerObjective` | `12` | Progress prompts per objective before it blocks `budget-exhausted`. |
-| `progressIntervalMs` | `45000` | Timer cadence for a progress prompt after an idle gap. |
-| `minWakeGapMs` | `8000` | Minimum gap between prompts to one session. |
-| `tickMs` | `20000` | Driver timer resolution. |
-| `classification.enabled` | `true` | Auto-tag incoming user messages in owner sessions. |
+| `enabled` | `true` | When false every tool returns `engine-disabled`; the registry still loads. |
+| `dataDir` | `$DSH_HOME/storages/objective-engine` | Journal, advisory log, snapshot, `LOCK`, optional `PAUSED`. |
+| `requireHumanAuthority` | `true` | Creation, control, ack, and resume need a direct human message in a top-level session. Only turn it off for test harnesses. |
+| `allowAgentProposedObjectives` | `false` | An agent turn may create a `proposed` objective that a human approves with `objective_control`. |
+| `maxActiveObjectives` | `3` | Objectives in `active`, `verifying`, or `awaiting-human`; more queue. |
+| `maxQueuedObjectives` | `32` | Durable queue depth; beyond it creation is `admission-rejected`. |
+| `maxObjectivesPerOwnerSession` | `3` | Open objectives one session may own. |
+| `maxQueueAgeMs` | 7 days | A queued objective older than this blocks `queue-expired`. |
+| `duplicateWindowMs` | 24 h | Same owner + normalized statement within the window is `duplicate-objective` (pass `allowDuplicate`). |
+
+### 7.2 Measured load
+
+| Field | Default | Meaning |
+|---|---|---|
+| `maxItemsPerObjective` | `16` | Item creation gate (also the `items` budget maximum). |
+| `maxActiveItemsPerObjective` | `2` | Concurrent dispatched items per objective (`concurrency` budget). |
+| `maxInFlightItemsGlobal` | `4` | Host-wide dispatch concurrency; beyond it `objective_dispatch` is `admission-busy` and work wakeups pause. |
+| `maxConcurrentVerifierRuns` | `1` | Verifier backlog cap. |
+| `maxVerifierRunsPerObjective` | `6` | `verifierRuns` budget maximum. |
+| `maxVerifierRunsPerObjectivePerDay` | `6` | Rate cap per objective. |
+| `maxDispatchesPerHour` | `12` | Host-wide dispatch rate. |
+
+### 7.3 Per-objective budgets and deadlines
+
+| Field | Default | Meaning |
+|---|---|---|
+| `maxRoundsPerObjective` | `12` | Admitted engine prompts (`rounds`); exhaustion blocks `budget-exhausted`. |
+| `maxTokensPerObjective` | `2000000` | `tokens` budget, measured as the owner session's `ctx.tokenMeter` delta since creation when the meter is composed. |
+| `maxWallTimePerObjective` | 24 h | `wallTimeMs` from activation. |
+| `stallTimeoutMs` | 30 min | A dispatched item with no report or heartbeat fails `stall`. |
+| `maxConsecutiveWorkerFailures` | `3` | Then the objective blocks `worker-failures`. |
+| `maxVerificationRejects` / `maxVerificationInconclusives` | `2` / `2` | Then the objective blocks `verification-failed`. |
+| `maxAckAgeMs` | 7 days | `awaiting-human` longer than this blocks `human-ack-timeout`. |
+| `ackReminderMs` | 24 h | One ack reminder per interval. |
+
+A budget set at creation (`objective_create { budget: {…} }`) may be lower
+than these maxima, never higher. `objective_control budget-raise` raises it.
+
+### 7.4 Driver timing
+
+| Field | Default | Meaning |
+|---|---|---|
+| `progressIntervalMs` | `45000` | A "plan the next step" prompt is due this long after the last wakeup when nothing is open. |
+| `minWakeGapMs` | `8000` | Minimum gap between two prompts to one session. |
+| `tickMs` | `20000` | Sweep resolution (deadlines, queue promotion, timer prompts). |
+
+### 7.5 Dispatch and verification
+
+| Field | Default | Meaning |
+|---|---|---|
+| `subagentProvider` | `spawn` | Provider name the engine passes to `startActivation`. |
+| `workerMaxDepth` | `0` | Delegation cap for engine-started children (`0`: they cannot delegate). |
+| `verifierPresets` | `[verifier, reviewer]` | Tried in order; a candidate equal to the producer's preset is skipped. |
+| `requireCommitPin` | `false` | When true `objective_verify` fails `commit-unavailable` outside a git checkout. |
+| `snapshotEvery` | `128` | Events between snapshots. |
+
+### 7.6 Advisory classifier
+
+| Field | Default | Meaning |
+|---|---|---|
+| `classificationCallsPerHour` | `60` | Rate cap on `objective_classify` + auto-tags. |
+| `classification.enabled` | `true` | Master switch. |
+| `classification.autoTag` | `true` | Tag incoming human messages in owner sessions. |
+| `classification.objectiveProbability` | `0.7` | `is_objective` needed for `new_objective`. |
+| `classification.progressProbability` | `0.6` | `is_objective` must be below this for `attach`. |
+| `classification.choiceFloor` / `confidenceFloor` / `margin` | `0.35` / `0.3` / `0.1` | Otherwise `ambiguous`. |
+| `classification.breakerFailures` / `breakerCooldownMs` | `3` / `300000` | Circuit breaker after consecutive failures. |
+| `classification.maxActiveObjectivesInPrompt` | `5` | Objectives listed in the question. |
 
 Tools: `objective_create`, `objective_status`, `objective_plan`,
-`objective_report`, `objective_verify`, `objective_complete`,
-`objective_cancel`, `objective_classify`, `objective_system`.
+`objective_dispatch`, `objective_report`, `objective_verify`,
+`objective_verdict`, `objective_ack`, `objective_control`, `objective_system`,
+`objective_classify`.
 
 Notes:
 
-- **The engine boots paused.** `objective_system { action: "resume" }` arms the
-  driver; `pause` stops it. There is no configuration field that overrides the
-  paused boot state, by design.
-- The journal is append-only JSONL, fsynced per event and torn-tail repaired on
-  load. Back it up before destructive maintenance; the engine never deletes it.
+- **The engine boots paused** on every host start, and objectives that were
+  active are paused and disarmed. `objective_system { action: "resume" }` from
+  a human turn in a top-level session arms the driver; `resumeAll: true` also
+  resumes the objectives the restart paused. No field overrides this.
+- **The journal is hash-chained** (`opm/v1`), fsynced per event, torn-tail
+  repaired, and validated from genesis on every load. A gap or mismatch makes
+  the engine `degraded` (read-only). Back the directory up before any manual
+  repair; the engine never deletes it.
+- **`PAUSED`** in the data directory forces a paused boot and refuses resume
+  until removed; **`LOCK`** keeps a second host process on the same directory
+  degraded.
 - The row needs no Web client. When the systemone browser half is composed, its
   Swarm panel renders the engine snapshot as an **Objectives** block.
-- Applying a config change reloads the row; journal state is preserved across
-  reloads and the engine returns paused.
+- Applying a config change reloads the row; journal state is preserved and the
+  engine returns paused.

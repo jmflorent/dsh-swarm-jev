@@ -522,9 +522,12 @@ window.__ModuleLoader__.load({
 								h(
 									"div",
 									{ style: { display: "flex", flexWrap: "wrap", gap: "6px" } },
-									h("span", { style: panelStyles.chip }, t(objectives.paused ? "panelObjPaused" : "panelObjRunning")),
+									h("span", { style: panelStyles.chip, title: typeof objectives.mode === "string" ? objectives.mode : "" }, t(objectives.paused ? "panelObjPaused" : "panelObjRunning")),
 									h("span", { style: panelStyles.chip }, `active ${objectiveCounts.active ?? 0}`),
 									h("span", { style: panelStyles.chip }, `queued ${objectiveCounts.queued ?? 0}`),
+									(objectiveCounts.verifying ?? 0) + (objectiveCounts["awaiting-human"] ?? 0) > 0
+										? h("span", { style: panelStyles.chip }, `verifying ${(objectiveCounts.verifying ?? 0) + (objectiveCounts["awaiting-human"] ?? 0)}`)
+										: null,
 									h("span", { style: panelStyles.chip }, `blocked ${objectiveCounts.blocked ?? 0}`),
 									h("span", { style: panelStyles.chip }, `completed ${objectiveCounts.completed ?? 0}`),
 								),
@@ -539,10 +542,13 @@ window.__ModuleLoader__.load({
 													{
 														style: {
 															...panelStyles.badge,
-															color: toneColor(objective.state === "active" ? "accent" : objective.state === "blocked" ? "bad" : "neutral"),
+															color: toneColor(
+																objective.state === "active" ? "accent" : objective.state === "blocked" ? "bad" : objective.state === "awaiting-human" || objective.state === "verifying" ? "ok" : "neutral",
+															),
 														},
+														title: typeof objective.blocked === "string" ? objective.blocked : objective.armed === false && objective.state === "active" ? "disarmed" : "",
 													},
-													objective.state,
+													typeof objective.blocked === "string" ? `${objective.state}: ${objective.blocked}` : objective.state,
 												),
 												h("span", { style: panelStyles.text, title: objective.statement }, objective.statement),
 												h("span", { style: panelStyles.meta }, `${objective.rounds}/${objective.maxRounds}`),
