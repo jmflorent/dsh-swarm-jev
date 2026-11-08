@@ -63,3 +63,25 @@ on an earlier dirty attempt.
 Executed checks catch a missing or broken delivery, not a subtle semantic
 wrongness. The independent verifier approval remains mandatory, as does human
 acknowledgment for judgment criteria — the Ringer doctrine, kept intact.
+
+## Live deployment finding (journal integrity)
+
+Deploying 0.3.0 to the live profile surfaced a pre-existing store bug rather
+than a checker bug: a human-authority owner's objective-level status report was
+journaled as `item/reported` with actor `human`, which the fold's allow-list
+refused. The event stayed in the journal while the folded state stopped
+advancing, so the journal sequence (1556) and the snapshot's folded sequence
+(554) diverged and the next boot's `engine/started` was rejected.
+
+Fixed in `9d8cf5f`:
+
+- `item/reported` now accepts a human owner (objective-level status reports).
+- `core.append` validates against the fold **before** writing; a rejected event
+  can no longer poison the journal.
+- Snapshots whose folded `lastSeq` differs from the store's are refused and
+  ignored instead of being loaded.
+
+The poisoned live store was archived at
+`/tmp/objective-engine-repair-20261108-171440`, truncated to the last folded
+sequence (554), and booted cleanly; the engine deployed at 0.3.0 is paused with
+the amail objective preserved as `paused`/disarmed.
