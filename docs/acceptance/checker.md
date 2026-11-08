@@ -85,3 +85,19 @@ The poisoned live store was archived at
 `/tmp/objective-engine-repair-20261108-171440`, truncated to the last folded
 sequence (554), and booted cleanly; the engine deployed at 0.3.0 is paused with
 the amail objective preserved as `paused`/disarmed.
+
+## Strictness re-run (verdict-time proof)
+
+After the verdict-time and liveness hardening, an isolated headless drill re-ran
+the same objective shape (`c1` command, `c2` artifact) against commit `f122cf4`:
+
+- `objective_verify` executed both checks (c1 exit 0; c2 9,495 bytes, sha256
+  `44ea2558…`), then `objective_verdict` **re-executed them and re-pinned the
+  tree** (`recheck: {commit: f122cf4, dirty: false}`);
+- the verifier approved, the objective completed, and the engine named the
+  recheck commit in the verdict record;
+- the package suite now has 23 sections, including verdict rechecks, fallback
+  refusal (`checker-unavailable`), external-verifier preset enforcement,
+  malformed-criteria rejection, and zombie/TTL verification cleanup.
+
+The live deployment was upgraded to this build (0.3.0, paused by default).
