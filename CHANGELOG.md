@@ -96,6 +96,15 @@ nine-condition test suite pins the completion gate.
   `degraded`) instead of a boolean.
 - The example patch no longer sets the retired `swarm.presets` field.
 
+### Verified
+
+- Phase-1 in-harness acceptance passed end to end on 2026-11-08 (headless
+  top-level session, real worker and verifier children, commit-pinned clean
+  tree, mechanical criterion completed). The drill found and the same release
+  fixed the absolute `maxDepth` dispatch bug and the human-actor
+  `item/dispatched`/`verification/*` fold bug. Evidence:
+  [`docs/acceptance/phase-1.md`](docs/acceptance/phase-1.md).
+
 ### Fixed
 
 - `packages/objective-engine` — a dispatch issued by a **human owner** was

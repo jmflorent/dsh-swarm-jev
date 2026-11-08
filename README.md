@@ -11,11 +11,13 @@ bundles with a `cordis.patch.yml`, plain ES modules, and Markdown.
 |---|---|---|---|
 | **Role personas** | [`packages/dsh-personas`](packages/dsh-personas) (`@local/dsh-personas` 1.1.0) | Seven agent presets — orchestrator, architect, writer, reviewer, researcher, plus the objective manager and verifier session types — layered over the shipped DSH presets | Stable |
 | **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.4) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** (with objectives when the engine is composed) | Stable |
-| **Objective/progress orchestrator** | [`packages/objective-engine`](packages/objective-engine) (`@local/objective-engine` 0.2.0) + [`docs/objective-engine.md`](docs/objective-engine.md) | The control plane: hash-chained objective/progress journal, admission and measured load, six budgets, event-driven wakeups with a pre-step fence, engine-started workers and verifier with commit pinning, a verifier-gated completion with human acknowledgment, a kill switch, and an advisory Mammoth classifier | **Phase 1 implemented** — Phase 2 hardening (worktrees, merge queue, cadence) remains design |
+| **Objective/progress orchestrator** | [`packages/objective-engine`](packages/objective-engine) (`@local/objective-engine` 0.2.0) + [`docs/objective-engine.md`](docs/objective-engine.md) | The control plane: hash-chained objective/progress journal, admission and measured load, six budgets, event-driven wakeups with a pre-step fence, engine-started workers and verifier with commit pinning, a verifier-gated completion with human acknowledgment, a kill switch, and an advisory Mammoth classifier | **Phase 1 accepted** (in-harness acceptance, 2026-11-08; see [`docs/acceptance/phase-1.md`](docs/acceptance/phase-1.md)) — Phase 2 hardening (worktrees, merge queue, cadence) remains design |
 
 > The objective engine implements Phase 1 of the design in
 > [`packages/objective-engine`](packages/objective-engine) and is covered by a
-> nine-condition test suite. Phase 2 — per-objective worktrees with a merge
+> nine-condition test suite. The Phase-1 in-harness acceptance drill (2026-11-08)
+> passed end to end; its evidence and the two defects it found are recorded in
+> [`docs/acceptance/phase-1.md`](docs/acceptance/phase-1.md). Phase 2 — per-objective worktrees with a merge
 > queue, schedule-driven cadence, an acknowledgment page, cross-process leases,
 > and a soak test — is still a plan, documented in
 > [`docs/design/`](docs/design/objective-progress-swarm-design.md).
