@@ -834,6 +834,9 @@ export const buildTools = (ctx, config, lastCall, runtime) => {
       if (typeof args?.stage !== 'string' || args.stage.trim() === '') {
         throw new Error('"stage" must be a non-empty description of the workplan stage')
       }
+      if (runtime.swarm.active(exec?.agent) !== true) {
+        return { ok: false, latencyMs: 0, error: 'swarm_assign requires swarm mode; call swarm_enter first' }
+      }
       const result = await runtime.swarm.assign(
         { stage: args.stage, needs: args.needs, context: args.context, candidates: args.candidates },
         exec?.signal,

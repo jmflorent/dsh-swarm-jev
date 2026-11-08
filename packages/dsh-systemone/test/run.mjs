@@ -498,6 +498,11 @@ const inert = await swarmPreExecute(
 assert.equal(inert.kind, 'allow', 'a session not in swarm mode is inert')
 assert.equal(mock.hits, hitsBeforeSwarm, 'inactive session makes no model call')
 
+// An inactive session cannot use the assignment authority.
+const inactiveAssignment = await swarmTool('swarm_assign').execute({ stage: 'premature stage' }, { agent: swarmAgent, signal: undefined })
+assert.equal(inactiveAssignment.ok, false, 'swarm_assign requires swarm_enter first')
+assert.match(inactiveAssignment.error, /swarm_enter/)
+
 // Enter swarm mode: orchestrator policy + enforcement for this session.
 const entered = await swarmTool('swarm_enter').execute({}, { agent: swarmAgent, signal: undefined })
 assert.equal(entered.active, true)
