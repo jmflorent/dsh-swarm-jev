@@ -5,10 +5,12 @@ implemented today, what is designed but not built, and how the two connect.
 
 **Status in one line:** swarm mode is implemented in the
 [`dsh-systemone`](../packages/dsh-systemone) bundle; the objective/progress
-control plane now ships as a working **MVP** in
+control plane is implemented through **Phase 1** of the design in
 [`packages/objective-engine`](../packages/objective-engine)
-([reference](objective-engine.md)); the remaining hardening work is still the
-decision-complete design in
+([reference](objective-engine.md)), with the two presets, the persona catalog
+entries, the allow-list, and the nine-condition test suite; Phase 2 hardening
+(worktree isolation and merge queue, schedule cadence, an ack page, cross-process
+leases, soak) remains design, in
 [`docs/design/objective-progress-swarm-design.md`](design/objective-progress-swarm-design.md).
 
 ---
@@ -52,14 +54,16 @@ persona entries in the swarm catalog, and a small service seam in `systemone`.
 | `systemone_ask` / `systemone_status` | Implemented | [`packages/dsh-systemone`](../packages/dsh-systemone) |
 | Decision layer (`off`/`shadow`/`enforce`) | Implemented | `lib/decisions.js` |
 | Swarm mode (`swarm_enter`, `swarm_assign`, `swarm_exit`) | Implemented | `index.js`, `lib/decisions.js` |
-| `objective-manager` / `verifier` presets | **Design only** | Not in the shipped personas bundle |
-| `@local/objective-engine` plugin, `objective_*` tools, journal | **Design only** | Not implemented |
-| Durable objective registry, budgets, wakeups, completion gate | **Design only** | Not implemented |
+| `objective-manager` / `verifier` presets | Implemented | [`packages/dsh-personas`](../packages/dsh-personas) (orders 15, 16) |
+| `@local/objective-engine` plugin, eleven `objective_*` tools, hash-chained journal | Implemented | [`packages/objective-engine`](../packages/objective-engine) |
+| Durable registry, admission, budgets, wakeups + fence, dispatch provenance, verifier gate, human ack, kill switch | Implemented (Phase 1) | `lib/transition.js`, `lib/pump.js`, `lib/dispatch.js`, `lib/verify.js` |
+| Worktree isolation + merge queue, schedule cadence, ack page, cross-process lease | **Design only** (Phase 2) | §7.5, §10.3 of the design |
 
-So today you can run the *orchestrator workflow* — enter swarm mode, decompose
-work, let the decision model assign personas, dispatch subagents, and have every
-call judged — but you cannot register and track objectives in a durable
-registry. The Phase 0 recipe below approximates that on the team task board.
+So today you can run the whole objective workflow: a human creates an
+objective, the engine wakes the manager on events, the manager plans and
+dispatches through the engine, the engine-started verifier gates completion, and
+the human acknowledges judgment criteria. The Phase 0 recipe below is kept for
+deployments without the engine bundle.
 
 ---
 
@@ -167,10 +171,12 @@ children, expires wakeups, and survives restart.
 | **Phase 1** | The control-plane plugin: journal, admission, budgets, wakeups, completion gate, verifier preset, tests | Phase 0 on ≥10 supervised objectives with zero completion-gate bypasses; writeup of every bypass |
 | **Phase 2** | Always-on hardening: circuit breaker, durable cadence, worktree isolation + serialized merge queue, ack surface, metrics, 72 h soak | Phase 1 acceptance green; two weeks of supervised use; incident review; decisions on the open questions |
 
-The MVP in `packages/objective-engine` implements the core loop of Phase 1 —
-journal, admission, budgets, verification gate, event-driven progress prompts,
-tests — but not the remaining hardening items. Phase 0 is therefore optional for
-this kit; the MVP is the recommended starting point.
+`packages/objective-engine` implements Phase 1: the journal with hash chain,
+snapshot, lock, and sentinel; admission and measured load; the six budgets;
+the serialized pump with the pre-step fence; engine-started workers and
+verifier with commit pinning; the completion gate with human acknowledgment;
+the kill switch; the advisory classifier with its outage policy; and the
+nine-condition test suite. Phase 0 is therefore optional for this kit.
 
 The design carries a **REQUEST CHANGES** review verdict with **nine must-fix
 conditions**. Section 10.4 of the design maps each condition to its mechanism
@@ -229,9 +235,12 @@ is Phase 1's entry criterion.
 
 ---
 
-## 6. What would have to be built next
+## 6. What is built, by design item
 
-Phase 1 is specified file-by-file and row-by-row in the design (§8):
+Phase 1 is specified file-by-file and row-by-row in the design (§8). The
+implementation follows that layout (`lib/store.js`, `fold.js`, `transition.js`,
+`admission.js`, `pump.js`, `dispatch.js`, `verify.js`, `classify.js`,
+`prompts.js`, `status.js`, `authority.js`, `tools.js`):
 
 | New artifact | Purpose |
 |---|---|
@@ -244,9 +253,14 @@ Phase 1 is specified file-by-file and row-by-row in the design (§8):
 | Profile rows for `objective-engine` + additions to `swarm.personas` / `swarm.orchestratorTools` | Deployment wiring |
 | Tests (`test/`, a nine-condition suite, fake ctx) | Prove the gate, duplicate replay, restart, outage, and bypass rejection |
 
-If you are implementing it, read the design's Appendix B first: it separates
-every **proposal** (new code) from behavior that was **verified** as shipped in
-DSH 0.2.2-rc.1, and gives the fallback for each proposal that might not hold.
+Deviations from the design text, all deliberate: a fourth `check.kind`
+(`evidence`) lets a plain string criterion be verified by cited evidence; the
+pre-step fence compares the objective's *state* and armed flag rather than its
+exact revision (a child report between reservation and admission would
+otherwise reject every prompt); rounds are consumed at admission, not at
+reservation; `objective_complete`/`objective_cancel` from the MVP are gone —
+completion is engine-only and cancellation lives in `objective_control`. What
+remains for Phase 2 is listed in [`objective-engine.md`](objective-engine.md#what-remains-phase-2).
 
 ---
 

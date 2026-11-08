@@ -1,488 +1,349 @@
 /**
- * Objective engine state machine.
- *
- * Records are folded from an append-only journal and every mutation appends
- * before it becomes visible, so a restart reconstructs the same state. The
- * engine is deliberately small: objectives, progress items (work orders and
- * status reports), verifications, advisory classification tags, and wakeups.
- * It never performs work itself — it tracks and drives an orchestrator session.
+ * Engine composition: store + fold + transitions + admission behind one
+ * service API (design §8.2). The host adapters (authority, dispatcher,
+ * verifier wiring, token meter) are injected so the same engine runs under a
+ * fake context in tests.
  */
-import { randomUUID } from 'node:crypto'
-import { createAppender, loadJournal } from './journal.js'
+import { applyEvent, deserializeState, emptyState, foldEvents, serializeState } from './fold.js'
+import { COUNTED_ACTIVE, clampText, clone, digest, iso } from './records.js'
+import { resolveSettings } from './admission.js'
+import { openStore } from './store.js'
+import {
+  ackObjective,
+  addItem,
+  bindVerifier,
+  controlObjective,
+  createObjective,
+  decideItem,
+  dispatchable,
+  expireAllWakes,
+  fail,
+  itemsOf,
+  markDispatched,
+  objectiveView,
+  pauseEngine,
+  promoteQueued,
+  reconcileAfterRestart,
+  recordVerdict,
+  reportItem,
+  requestVerification,
+  reserveWake,
+  resumeEngine,
+  setWakeState,
+  settleChild,
+  spendRound,
+  sweepObjective,
+} from './transition.js'
 
-const VERSION = 1
-const STATE = new Set(['queued', 'active', 'blocked', 'completed', 'cancelled'])
-const WAKE_REASONS = new Set(['idle', 'timer', 'child-end', 'resume', 'queue'])
-
-export const DEFAULTS = Object.freeze({
-  enabled: true,
-  maxActiveObjectives: 3,
-  maxQueuedObjectives: 16,
-  maxRoundsPerObjective: 12,
-  progressIntervalMs: 45000,
-  minWakeGapMs: 8000,
-  tickMs: 20000,
-  maxTags: 50,
-  classification: { enabled: true },
-})
-
-const clone = (value) => JSON.parse(JSON.stringify(value))
-const positiveInt = (value, fallback, max) => {
-  const number = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(number) || number <= 0) return fallback
-  return Math.min(Math.floor(number), max)
-}
-const text = (value, max) => (typeof value === 'string' ? value.trim().slice(0, max) : '')
-const id = (prefix) => `${prefix}-${randomUUID().slice(0, 8)}`
-const nowIso = (now) => new Date(now()).toISOString()
-
-/** Fold one journal event into the live state. */
-const fold = (state, event) => {
-  const data = event.data ?? {}
-  switch (event.type) {
-    case 'engine/boot':
-      state.paused = true
-      state.pausedReason = typeof data.reason === 'string' ? data.reason : 'boot'
-      state.bootedAt = event.at
-      break
-    case 'engine/paused':
-      state.paused = data.paused === true
-      state.pausedReason = typeof data.reason === 'string' ? data.reason : undefined
-      break
-    case 'objective/upsert':
-      if (data.objective !== undefined) {
-        state.objectives.set(data.objective.id, data.objective)
-        if (typeof data.idempotencyKey === 'string' && data.idempotencyKey !== '') {
-          state.idempotency.set(data.idempotencyKey, data.objective.id)
-        }
-      }
-      break
-    case 'progress/upsert':
-      if (data.item !== undefined) state.progress.set(data.item.id, data.item)
-      break
-    case 'verification/recorded':
-      if (data.verification !== undefined) {
-        state.verifications.push(data.verification)
-        while (state.verifications.length > 200) state.verifications.shift()
-      }
-      break
-    case 'tag/recorded':
-      if (data.tag !== undefined) {
-        state.tags.push(data.tag)
-        while (state.tags.length > 50) state.tags.shift()
-      }
-      break
-    case 'wake/recorded':
-      if (data.wake !== undefined) {
-        state.wakes.push(data.wake)
-        while (state.wakes.length > 200) state.wakes.shift()
-        state.lastWakeAt.set(data.wake.sessionId, Date.parse(data.wake.at))
-      }
-      break
-    default:
-      break
-  }
-}
-
-const objectiveView = (state, objective) => {
-  const items = [...state.progress.values()].filter((item) => item.objectiveId === objective.id)
-  return {
-    ...clone(objective),
-    progress: {
-      total: items.length,
-      ready: items.filter((item) => item.state === 'ready').length,
-      reported: items.filter((item) => item.state === 'reported').length,
-    },
-  }
-}
+const engineActor = { kind: 'engine' }
 
 /**
- * Build the engine over one journal file.
- * @param {{config: object, journalFile: string, now?: () => number, onWorkAvailable?: (sessionId: string) => void}} options
- * @returns engine API used by tools and the pump.
+ * @param {object} options
+ * @param {object} options.config row config
+ * @param {string} options.dataDir storage directory
+ * @param {() => number} [options.now]
+ * @param {Function} [options.log]
+ * @param {object} [options.dispatcher] createDispatcher() result
+ * @param {object} [options.verifier] createVerifierWiring() result
+ * @param {object} [options.authority] createAuthority() result
+ * @param {object} [options.tokenMeter] { measure(session) }
+ * @param {Function} [options.onWork] called with a session id when that owner may need a prompt
  */
-export const createEngine = ({ config, journalFile, now = Date.now, onWorkAvailable }) => {
-  const settings = {
-    enabled: config?.enabled !== false,
-    maxActiveObjectives: positiveInt(config?.maxActiveObjectives, DEFAULTS.maxActiveObjectives, 64),
-    maxQueuedObjectives: positiveInt(config?.maxQueuedObjectives, DEFAULTS.maxQueuedObjectives, 256),
-    maxRoundsPerObjective: positiveInt(config?.maxRoundsPerObjective, DEFAULTS.maxRoundsPerObjective, 1000),
-    progressIntervalMs: positiveInt(config?.progressIntervalMs, DEFAULTS.progressIntervalMs, 86_400_000),
-    minWakeGapMs: positiveInt(config?.minWakeGapMs, DEFAULTS.minWakeGapMs, 3_600_000),
-    tickMs: positiveInt(config?.tickMs, DEFAULTS.tickMs, 3_600_000),
-    classification: { enabled: config?.classification?.enabled !== false },
-  }
-  const state = {
-    objectives: new Map(),
-    progress: new Map(),
-    verifications: [],
-    tags: [],
-    wakes: [],
-    idempotency: new Map(),
-    lastWakeAt: new Map(),
-    paused: true,
-    pausedReason: 'boot',
-    bootedAt: undefined,
-  }
+export const createEngine = ({ config, settings: provided, dataDir, now = Date.now, log = () => {}, dispatcher, verifier, authority, tokenMeter, onWork, pid }) => {
+  const settings = provided ?? resolveSettings(config)
+  const store = openStore({ dataDir, snapshotEvery: settings.snapshotEvery, now, pid })
+  const state = store.snapshot === undefined ? emptyState() : deserializeState(store.snapshot.state)
+  const folded = foldEvents(state, store.events)
+  let foldError
+  if (folded.rejected !== undefined) foldError = `fold rejected event seq ${folded.rejected.seq} (${folded.rejected.type})`
 
-  const { events, repaired } = loadJournal(journalFile)
-  for (const event of events) fold(state, event)
-  const appender = createAppender(journalFile)
-  let seq = events.length === 0 ? 0 : Number(events[events.length - 1].seq ?? events.length)
-  const append = (type, data) => {
-    seq += 1
-    const event = { v: VERSION, seq, at: nowIso(now), type, data }
-    appender.append(event)
-    fold(state, event)
-    return event
-  }
-  // Every process start begins paused: arming the driver is an explicit act.
-  append('engine/boot', { reason: 'process-start', repaired })
-
-  const fail = (code, message) => ({ ok: false, code, message })
-  const ownerOf = (actor) => (typeof actor?.sessionId === 'string' && actor.sessionId !== '' ? actor.sessionId : undefined)
-  const activeCount = () => [...state.objectives.values()].filter((objective) => objective.state === 'active').length
-  const queuedCount = () => [...state.objectives.values()].filter((objective) => objective.state === 'queued').length
-  const objectivesOf = (sessionId) => [...state.objectives.values()].filter((objective) => objective.owner.sessionId === sessionId)
-  const view = (objective) => objectiveView(state, objective)
-  const latestVerification = (objectiveId) => {
-    const matches = state.verifications.filter((verification) => verification.objectiveId === objectiveId)
-    return matches.length === 0 ? undefined : matches[matches.length - 1]
-  }
-
-  const promoteQueued = () => {
-    const promoted = []
-    for (const sessionId of new Set([...state.objectives.values()].map((objective) => objective.owner.sessionId))) {
-      while (activeCount() < settings.maxActiveObjectives) {
-        const next = [...state.objectives.values()]
-          .filter((objective) => objective.owner.sessionId === sessionId && objective.state === 'queued')
-          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
-        if (next === undefined) break
-        append('objective/upsert', {
-          objective: { ...next, state: 'active', revision: next.revision + 1, updatedAt: nowIso(now) },
-        })
-        promoted.push(next.id)
-      }
+  const tokens =
+    tokenMeter !== undefined && authority !== undefined
+      ? {
+          baseline: (sessionId) => measure(sessionId),
+          measure: (sessionId) => measure(sessionId),
+        }
+      : undefined
+  const measure = (sessionId) => {
+    try {
+      const agent = authority?.agentFor(sessionId)
+      const value = agent === undefined ? undefined : tokenMeter.measure(agent.session)?.totalTokens
+      return typeof value === 'number' ? value : undefined
+    } catch {
+      return undefined
     }
-    return promoted
   }
 
-  const complete = (objectiveId, outcome, patch) => {
-    const objective = state.objectives.get(objectiveId)
-    if (objective === undefined) return fail('objective-not-found', `no objective ${objectiveId}`)
-    append('objective/upsert', {
-      objective: {
-        ...objective,
-        state: 'completed',
-        revision: objective.revision + 1,
-        updatedAt: nowIso(now),
-        completedAt: nowIso(now),
-        completion: { ...outcome, at: nowIso(now), ...(patch === undefined ? {} : patch) },
-      },
-    })
-    const promoted = promoteQueued()
-    return { ok: true, objective: view(state.objectives.get(objectiveId)), promoted }
+  const core = {
+    state,
+    settings,
+    now,
+    digest,
+    tokens,
+    append(type, actor, data, key) {
+      const event = {
+        at: iso(now()),
+        type,
+        actor: { kind: actor?.kind ?? 'engine', ...(actor?.sessionId === undefined ? {} : { sessionId: actor.sessionId }), ...(actor?.presetId === undefined ? {} : { presetId: actor.presetId }) },
+        ...(key === undefined ? {} : { key }),
+        data,
+      }
+      const written = store.append(event)
+      if (!applyEvent(state, written)) throw new Error(`fold rejected a freshly written event: ${type}`)
+      if (store.snapshotDue()) store.writeSnapshot(serializeState(state))
+      return written
+    },
+    reject(actor, code, detail) {
+      try {
+        core.append('admission/rejected', actor?.kind === 'human' ? actor : { kind: 'engine' }, { code, detail: clone(detail) ?? code })
+      } catch {
+        /* a rejection record is best effort */
+      }
+    },
+    cancelChild: (itemId, reason) => dispatcher?.cancelChild(itemId, reason) ?? 0,
+    cancelChildren: (objectiveId, reason) => dispatcher?.cancelChildren(objectiveId, reason) ?? 0,
   }
 
-  const block = (objective, reason) => {
-    append('objective/upsert', {
-      objective: {
-        ...objective,
-        state: 'blocked',
-        blockedReason: reason,
-        revision: objective.revision + 1,
-        updatedAt: nowIso(now),
-      },
-    })
+  // --- boot ------------------------------------------------------------------
+  let bootChanges
+  if (store.degraded !== undefined || foldError !== undefined) {
+    state.engine.mode = 'degraded'
+    state.engine.pausedReason = store.degraded ?? foldError
+    log('warn', `engine degraded: ${state.engine.pausedReason}`)
+  } else {
+    core.append('engine/started', engineActor, { reason: store.pausedSentinel() ? 'paused-sentinel' : 'process-start', repaired: store.repaired, snapshotUsed: store.snapshotUsed })
+    bootChanges = reconcileAfterRestart(core)
+  }
+
+  const guard = () => {
+    if (!settings.enabled) return fail('engine-disabled', 'the objective engine is disabled in its row config')
+    if (state.engine.mode === 'degraded') return fail('engine-degraded', state.engine.pausedReason ?? 'degraded (read-only)')
+    return undefined
+  }
+  const wrap = (fn) => (...args) => {
+    const blocked = guard()
+    if (blocked !== undefined) return blocked
+    try {
+      return fn(...args)
+    } catch (error) {
+      if (error?.code === 'persistence-failed' || error?.code === 'engine-degraded') {
+        state.engine.mode = 'degraded'
+        state.engine.pausedReason = error.message
+        return fail(error.code, error.message)
+      }
+      throw error
+    }
+  }
+  const wrapAsync = (fn) => async (...args) => {
+    const blocked = guard()
+    if (blocked !== undefined) return blocked
+    try {
+      return await fn(...args)
+    } catch (error) {
+      if (error?.code === 'persistence-failed' || error?.code === 'engine-degraded') {
+        state.engine.mode = 'degraded'
+        state.engine.pausedReason = error.message
+        return fail(error.code, error.message)
+      }
+      throw error
+    }
+  }
+
+  const objectivesOf = (sessionId) => [...state.objectives.values()].filter((objective) => objective.owner.sessionId === sessionId)
+  const kick = (sessionId) => {
+    try {
+      onWork?.(sessionId)
+    } catch {
+      /* the pump must never break a command */
+    }
   }
 
   const engine = {
     settings,
-    config: settings,
-    journalFile,
     state,
+    store,
+    core,
+    get mode() {
+      return state.engine.mode
+    },
     get paused() {
-      return state.paused
+      return state.engine.mode !== 'running'
     },
-    status: () => ({
-      ok: true,
-      engine: {
-        paused: state.paused,
-        // Tool outputs must be lossless JSON: omit empty optional keys entirely.
-        ...(typeof state.pausedReason === 'string' ? { pausedReason: state.pausedReason } : {}),
-        ...(typeof state.bootedAt === 'string' ? { bootedAt: state.bootedAt } : {}),
-        enabled: settings.enabled,
-        limits: {
-          maxActiveObjectives: settings.maxActiveObjectives,
-          maxQueuedObjectives: settings.maxQueuedObjectives,
-          maxRoundsPerObjective: settings.maxRoundsPerObjective,
-          progressIntervalMs: settings.progressIntervalMs,
-          minWakeGapMs: settings.minWakeGapMs,
-        },
-        counts: {
-          active: activeCount(),
-          queued: queuedCount(),
-          blocked: [...state.objectives.values()].filter((objective) => objective.state === 'blocked').length,
-          completed: [...state.objectives.values()].filter((objective) => objective.state === 'completed').length,
-          cancelled: [...state.objectives.values()].filter((objective) => objective.state === 'cancelled').length,
-        },
-        journal: journalFile,
-        lastWakes: [...state.lastWakeAt.entries()].map(([sessionId, at]) => ({ sessionId, at: new Date(at).toISOString() })),
-      },
-      objectives: [...state.objectives.values()].map(view),
-      progress: [...state.progress.values()].slice(-200),
-      verifications: state.verifications.slice(-50),
-      tags: state.tags.slice(-20),
-      wakes: state.wakes.slice(-10),
-    }),
-    snapshot: () => ({
-      paused: state.paused,
-      counts: {
-        active: activeCount(),
-        queued: queuedCount(),
-        blocked: [...state.objectives.values()].filter((objective) => objective.state === 'blocked').length,
-        completed: [...state.objectives.values()].filter((objective) => objective.state === 'completed').length,
-      },
-      objectives: [...state.objectives.values()]
-        .filter((objective) => objective.state === 'active' || objective.state === 'queued' || objective.state === 'blocked')
-        .slice(-12)
-        .map((objective) => ({
-          id: objective.id,
-          statement: objective.statement.slice(0, 240),
-          state: objective.state,
-          rounds: objective.budget.rounds.used,
-          maxRounds: objective.budget.rounds.max,
-          progress: [...state.progress.values()].filter((item) => item.objectiveId === objective.id).length,
-        })),
-    }),
-    create: (input, actor) => {
-      const statement = text(input?.statement, 4000)
-      if (statement === '') return fail('statement-required', 'objective_create needs a non-empty statement')
-      const criteria = Array.isArray(input?.criteria)
-        ? input.criteria.map((entry) => text(entry, 1000)).filter((entry) => entry !== '')
-        : []
-      if (criteria.length === 0) return fail('criteria-required', 'objective_create needs at least one checkable criterion')
-      const owner = ownerOf(actor)
-      if (owner === undefined) return fail('no-session', 'objective_create must run inside an agent session')
-      const idempotencyKey = text(input?.idempotencyKey, 200)
-      if (idempotencyKey !== '' && state.idempotency.has(idempotencyKey)) {
-        const existing = state.objectives.get(state.idempotency.get(idempotencyKey))
-        if (existing !== undefined) return { ok: true, objective: view(existing), deduplicated: true }
-      }
-      if (activeCount() >= settings.maxActiveObjectives && queuedCount() >= settings.maxQueuedObjectives) {
-        return fail('admission-full', 'active and queued objective limits are both full')
-      }
-      const roundLimit = positiveInt(input?.budgetRounds, settings.maxRoundsPerObjective, settings.maxRoundsPerObjective)
-      const objective = {
-        id: id('obj'),
-        revision: 1,
-        createdAt: nowIso(now),
-        updatedAt: nowIso(now),
-        statement,
-        criteria: criteria.map((criterion, index) => ({ id: `c${index + 1}`, statement: criterion })),
-        priority: typeof input?.priority === 'number' && Number.isFinite(input.priority) ? input.priority : 0,
-        state: activeCount() < settings.maxActiveObjectives ? 'active' : 'queued',
-        owner: { sessionId: owner, ...(typeof actor?.preset === 'string' ? { preset: actor.preset } : {}) },
-        budget: { rounds: { used: 0, max: roundLimit } },
-      }
-      append('objective/upsert', {
-        objective,
-        ...(idempotencyKey === '' ? {} : { idempotencyKey }),
-      })
-      if (objective.state === 'active') onWorkAvailable?.(owner)
-      return { ok: true, objective: view(objective) }
-    },
-    plan: (input, actor) => {
-      const objective = state.objectives.get(text(input?.objectiveId, 80))
-      if (objective === undefined) return fail('objective-not-found', 'unknown objective')
-      if (objective.state !== 'active') return fail('objective-not-active', `objective is ${objective.state}`)
-      const description = text(input?.text, 2000)
-      if (description === '') return fail('text-required', 'objective_plan needs text')
-      const kind = input?.kind === 'status-report' || input?.kind === 'heartbeat' ? input.kind : 'work-order'
-      const item = {
-        id: id('itm'),
-        objectiveId: objective.id,
-        kind,
-        text: description,
-        state: kind === 'work-order' ? 'ready' : 'reported',
-        createdAt: nowIso(now),
-        updatedAt: nowIso(now),
-        ...(typeof actor?.sessionId === 'string' ? { by: actor.sessionId } : {}),
-      }
-      append('progress/upsert', { item })
-      return { ok: true, item: clone(item) }
-    },
-    report: (input, actor) => {
-      const objective = state.objectives.get(text(input?.objectiveId, 80))
-      if (objective === undefined) return fail('objective-not-found', 'unknown objective')
-      if (objective.state !== 'active') return fail('objective-not-active', `objective is ${objective.state}`)
-      const progressId = text(input?.progressId, 80)
-      const description = text(input?.text, 4000)
-      if (progressId !== '') {
-        const item = state.progress.get(progressId)
-        if (item === undefined || item.objectiveId !== objective.id) return fail('progress-not-found', 'unknown progress item for this objective')
-        if (description === '' && input?.state === undefined) return fail('text-required', 'objective_report needs text or state')
-        const nextState = input?.state === 'failed' ? 'failed' : input?.state === 'ready' ? 'ready' : 'reported'
-        const updated = {
-          ...item,
-          state: nextState,
-          ...(description === '' ? {} : { text: description }),
-          updatedAt: nowIso(now),
-          ...(typeof actor?.sessionId === 'string' ? { by: actor.sessionId } : {}),
-        }
-        append('progress/upsert', { item: updated })
-        return { ok: true, item: clone(updated) }
-      }
-      if (description === '') return fail('text-required', 'objective_report needs text')
-      const item = {
-        id: id('itm'),
-        objectiveId: objective.id,
-        kind: 'status-report',
-        text: description,
-        state: 'reported',
-        createdAt: nowIso(now),
-        updatedAt: nowIso(now),
-        ...(typeof actor?.sessionId === 'string' ? { by: actor.sessionId } : {}),
-      }
-      append('progress/upsert', { item })
-      return { ok: true, item: clone(item) }
-    },
-    verdict: (input, actor) => {
-      const objective = state.objectives.get(text(input?.objectiveId, 80))
-      if (objective === undefined) return fail('objective-not-found', 'unknown objective')
-      if (objective.state !== 'active') return fail('objective-not-active', `objective is ${objective.state}`)
-      const verdict = input?.verdict
-      if (verdict !== 'pass' && verdict !== 'fail' && verdict !== 'inconclusive') {
-        return fail('verdict-invalid', 'verdict must be pass, fail, or inconclusive')
-      }
-      const evidence = text(input?.evidence, 4000)
-      if (verdict !== 'inconclusive' && evidence === '') return fail('evidence-required', 'a verdict needs concrete evidence')
-      const by = ownerOf(actor)
-      if (by === undefined) return fail('no-session', 'objective_verify must run inside an agent session')
-      if (by === objective.owner.sessionId) {
-        return fail('self-verification', 'the objective owner cannot verify its own objective')
-      }
-      const verification = {
-        id: id('ver'),
-        objectiveId: objective.id,
-        verdict,
-        evidence,
-        at: nowIso(now),
-        by: { sessionId: by, ...(typeof actor?.preset === 'string' ? { preset: actor.preset } : {}) },
-      }
-      append('verification/recorded', { verification })
-      return { ok: true, verification: clone(verification) }
-    },
-    complete: (input, actor) => {
-      const objective = state.objectives.get(text(input?.objectiveId, 80))
-      if (objective === undefined) return fail('objective-not-found', 'unknown objective')
-      if (objective.state !== 'active') return fail('objective-not-active', `objective is ${objective.state}`)
-      if (ownerOf(actor) !== objective.owner.sessionId) {
-        return fail('not-owner', 'only the objective owner session may complete it')
-      }
-      if (typeof input?.expectedRevision === 'number' && input.expectedRevision !== objective.revision) {
-        return fail('stale-revision', `objective is at revision ${objective.revision}`)
-      }
-      const verification = latestVerification(objective.id)
-      if (verification === undefined || verification.verdict !== 'pass') {
-        return fail('verification-required', 'an independent pass verdict is required before completion')
-      }
-      return complete(objective.id, { verificationId: verification.id, verifiedBy: verification.by.sessionId }, {
-        ...(text(input?.note, 1000) === '' ? {} : { note: text(input?.note, 1000) }),
-      })
-    },
-    completeVerified: (objectiveId, verificationId, note) => complete(objectiveId, { verificationId }, note === undefined ? undefined : { note }),
-    cancel: (input, actor) => {
-      const objective = state.objectives.get(text(input?.objectiveId, 80))
-      if (objective === undefined) return fail('objective-not-found', 'unknown objective')
-      if (objective.state !== 'active' && objective.state !== 'queued' && objective.state !== 'blocked') {
-        return fail('objective-not-cancellable', `objective is ${objective.state}`)
-      }
-      if (ownerOf(actor) !== objective.owner.sessionId) {
-        return fail('not-owner', 'only the objective owner session may cancel it')
-      }
-      const reason = text(input?.reason, 1000)
-      append('objective/upsert', {
-        objective: {
-          ...objective,
-          state: 'cancelled',
-          revision: objective.revision + 1,
-          updatedAt: nowIso(now),
-          cancelledAt: nowIso(now),
-          ...(reason === '' ? {} : { cancelReason: reason }),
-        },
-      })
-      const promoted = promoteQueued()
-      return { ok: true, objective: view(state.objectives.get(objective.id)), promoted }
-    },
-    pause: (reason) => {
-      append('engine/paused', { paused: true, ...(text(reason, 500) === '' ? {} : { reason: text(reason, 500) }) })
-      return { ok: true, paused: true }
-    },
-    resume: () => {
-      append('engine/paused', { paused: false })
-      return { ok: true, paused: false }
-    },
-    blockExhausted: (sessionId) => {
-      let count = 0
-      for (const objective of objectivesOf(sessionId)) {
-        if (objective.state === 'active' && objective.budget.rounds.used >= objective.budget.rounds.max) {
-          block(objective, 'budget-exhausted')
-          count += 1
-        }
-      }
-      return count
-    },
-    claimable: (sessionId) =>
-      objectivesOf(sessionId)
-        .filter((objective) => objective.state === 'active' && objective.budget.rounds.used < objective.budget.rounds.max)
-        .sort((a, b) => a.budget.rounds.used - b.budget.rounds.used || a.createdAt.localeCompare(b.createdAt)),
-    spendRound: (objectiveId) => {
-      const objective = state.objectives.get(objectiveId)
-      if (objective === undefined) return undefined
-      if (objective.budget.rounds.used >= objective.budget.rounds.max) {
-        block(objective, 'budget-exhausted')
-        return undefined
-      }
-      const updated = {
-        ...objective,
-        budget: { rounds: { used: objective.budget.rounds.used + 1, max: objective.budget.rounds.max } },
-        revision: objective.revision + 1,
-        updatedAt: nowIso(now),
-      }
-      append('objective/upsert', { objective: updated })
-      return updated
-    },
-    recordWake: ({ sessionId, objectiveId, reason }) => {
-      if (!WAKE_REASONS.has(reason)) throw new Error(`unknown wake reason ${reason}`)
-      const wake = {
-        id: id('wke'),
-        at: nowIso(now),
-        sessionId,
-        objectiveId,
-        reason,
-        round: state.objectives.get(objectiveId)?.budget.rounds.used ?? 0,
-      }
-      append('wake/recorded', { wake })
-      return wake
-    },
-    lastWakeAt: (sessionId) => state.lastWakeAt.get(sessionId) ?? 0,
-    owners: () => [...new Set([...state.objectives.values()]
-      .filter((objective) => objective.state === 'active' || objective.state === 'queued')
-      .map((objective) => objective.owner.sessionId))],
-    hasOwner: (sessionId) => objectivesOf(sessionId).some((objective) => objective.state === 'active' || objective.state === 'queued'),
-    activeCount,
-    queuedCount,
-    promoteQueued,
-    markBlocked: (objectiveId, reason) => {
-      const objective = state.objectives.get(objectiveId)
-      if (objective !== undefined) block(objective, reason)
-    },
-    recentTag: (sessionId) => [...state.tags].reverse().find((tag) => tag.sessionId === sessionId),
-    activeFor: (sessionId) => objectivesOf(sessionId).filter((objective) => objective.state === 'active'),
-    recordTag: (tag) => append('tag/recorded', { tag }),
-    close: () => appender.close(),
-  }
+    bootChanges,
+    objectiveView: (objective) => objectiveView(state, objective),
+    activeFor: (sessionId) => objectivesOf(sessionId).filter((objective) => COUNTED_ACTIVE.has(objective.state)),
+    hasOwner: (sessionId) => objectivesOf(sessionId).some((objective) => !['completed', 'cancelled'].includes(objective.state)),
+    owners: () => [...new Set([...state.objectives.values()].filter((objective) => !['completed', 'cancelled'].includes(objective.state)).map((objective) => objective.owner.sessionId))],
+    objectivesOf,
+    itemsOf: (objectiveId) => itemsOf(state, objectiveId),
+    recordProposal: (record) => store.appendAdvisory(record),
 
+    // --- commands --------------------------------------------------------------
+    create: wrap((input, actor) => {
+      const result = createObjective(core, input, actor)
+      if (result.ok && result.objective.state === 'active') kick(actor.sessionId)
+      return result
+    }),
+    control: wrap((input, actor) => {
+      if (actor?.human !== true) return fail('unauthorized', 'objective_control requires a direct human message in the current turn of a top-level session')
+      const result = controlObjective(core, input, actor)
+      if (result.ok) kick(result.objective?.owner?.sessionId)
+      return result
+    }),
+    plan: wrap((input, actor) => {
+      const action = typeof input?.action === 'string' ? input.action : 'add'
+      const result = action === 'add' ? addItem(core, input, actor) : decideItem(core, { ...input, action }, actor)
+      if (result.ok) kick(actor.sessionId)
+      return result
+    }),
+    dispatch: wrapAsync(async (input, actor) => {
+      const check = dispatchable(core, input, actor)
+      if (!check.ok) return check
+      const { item, objective } = check
+      const persona = clampText(input?.persona, 80)
+      const brief = clampText(input?.brief, 12000)
+      if (persona === '') return fail('record-incomplete', 'objective_dispatch needs the persona swarm_assign returned')
+      if (brief === '') return fail('record-incomplete', 'objective_dispatch needs a self-contained brief for the child')
+      if (item.assignedPersona !== undefined && item.assignedPersona !== persona && input?.reassign !== true) {
+        return fail('persona-mismatch', `the item was planned for ${item.assignedPersona}; pass reassign:true to change it`)
+      }
+      if (dispatcher === undefined || !dispatcher.available()) {
+        if (input?.external === true) {
+          const dispatched = markDispatched(core, item, { kind: 'external', sessionId: 'pending' }, persona, actor)
+          return { ok: true, item: clone(dispatched), fallback: true, note: 'subagent service unavailable: start the child yourself with the subagent tool, then bind it with objective_report {itemId, childSessionId}' }
+        }
+        return fail('dispatch-unavailable', 'the subagent service is not composed; pass external:true to use the manager-driven fallback')
+      }
+      const parent = authority?.agentFor(objective.owner.sessionId) ?? actor?.agent
+      const started = await dispatcher.dispatchWorker({ objective, item, persona, brief, instructions: clampText(input?.instructions, 4000) || undefined, parent })
+      if (!started.ok) return started
+      const dispatched = markDispatched(core, item, { kind: 'child', sessionId: started.childId, presetId: started.preset }, persona, actor)
+      return { ok: true, item: clone(dispatched), childSessionId: started.childId }
+    }),
+    report: wrap((input, actor) => {
+      const result = reportItem(core, input, actor)
+      if (result.ok) {
+        const objective = state.objectives.get(clampText(input?.objectiveId, 80))
+        kick(objective?.owner?.sessionId)
+      }
+      return result
+    }),
+    verify: wrapAsync(async (input, actor) => {
+      const objective = state.objectives.get(clampText(input?.objectiveId, 80))
+      if (objective === undefined) return fail('objective-not-found', 'unknown objective')
+      const parent = authority?.agentFor(objective.owner.sessionId) ?? actor?.agent
+      const pin = verifier === undefined ? { commit: null, pinned: false, reason: 'pinning-unavailable' } : await verifier.pinCommit(parent)
+      const requested = requestVerification(core, input, actor, pin)
+      if (!requested.ok) return requested
+      const record = state.verifications.get(requested.verification.id)
+      if (verifier === undefined || dispatcher === undefined || !dispatcher.available()) {
+        const bound = bindVerifier(core, record, { kind: 'external' })
+        return { ...requested, verification: clone(bound), note: 'no subagent service: a different session (not the owner, different preset) must call objective_verdict with evidence' }
+      }
+      const started = await verifier.startVerifier({ objective: state.objectives.get(objective.id), verification: record })
+      if (!started.ok) {
+        const bound = bindVerifier(core, record, { kind: 'external', startFailure: started.code })
+        return { ...requested, verification: clone(bound), note: `verifier child could not be started (${started.code}); an independent session must call objective_verdict` }
+      }
+      const bound = bindVerifier(core, record, started.verifier)
+      return { ...requested, verification: clone(bound), verifierSessionId: started.verifier.sessionId }
+    }),
+    verdict: wrap((input, actor) => {
+      const result = recordVerdict(core, input, actor)
+      if (result.ok) kick(state.objectives.get(result.objective.id)?.owner?.sessionId)
+      return result
+    }),
+    ack: wrap((input, actor) => {
+      const result = ackObjective(core, input, actor)
+      if (result.ok) kick(result.objective?.owner?.sessionId)
+      return result
+    }),
+    system: wrap((input, actor) => {
+      const action = input?.action
+      if (action === 'status') return { ok: true }
+      if (action === 'pause') {
+        if (actor?.root !== true && actor?.human !== true && actor?.kind !== 'engine') return fail('unauthorized', 'pause requires a top-level session')
+        const result = pauseEngine(core, actor?.human ? actor : engineActor, input?.reason)
+        const cancelled = dispatcher?.cancelAll('engine paused') ?? 0
+        return { ...result, cancelledChildren: cancelled }
+      }
+      if (action === 'resume') {
+        if (actor?.human !== true) return fail('unauthorized', 'resume requires a direct human message in the current turn of a top-level session')
+        if (store.pausedSentinel()) return fail('paused-sentinel', `remove ${store.dataDir}/PAUSED to allow resuming`)
+        const result = resumeEngine(core, actor, { resumeAll: input?.resumeAll === true })
+        if (result.ok) for (const owner of engine.owners()) kick(owner)
+        return result
+      }
+      return fail('action-invalid', 'action must be resume, pause, or status')
+    }),
+    pauseAll: (reason) => {
+      const blocked = guard()
+      if (blocked !== undefined) return blocked
+      const result = pauseEngine(core, engineActor, reason)
+      const cancelled = dispatcher?.cancelAll(reason ?? 'pauseAll') ?? 0
+      return { ...result, cancelledChildren: cancelled }
+    },
+
+    // --- driver support ----------------------------------------------------------
+    spendRound: (objectiveId) => spendRound(core, objectiveId),
+    reserveWake: (input) => reserveWake(core, input),
+    admitWake: (wake) => setWakeState(core, wake, 'admitted'),
+    expireWake: (wake, reason) => setWakeState(core, wake, 'expired', { reason }),
+    supersedeWake: (wake, reason) => setWakeState(core, wake, 'superseded', { reason }),
+    expireAllWakes: (reason) => expireAllWakes(core, reason),
+    /** Mark notices as delivered, carried on the wake reservation itself. */
+    markNotified: ({ objective, items, verdict, blocked, ack }) => {
+      const nowIso = iso(now())
+      const nextObjective = {
+        ...objective,
+        ...(verdict && objective.verdictNotice ? { verdictNotice: { ...objective.verdictNotice, notified: true } } : {}),
+        ...(blocked ? { blockedNotifiedAt: nowIso } : {}),
+        ...(ack ? { ackRemindedAt: nowIso } : {}),
+        revision: objective.revision + 1,
+        updatedAt: nowIso,
+      }
+      const nextItems = (items ?? []).map((item) => ({ ...item, notified: true, revision: item.revision + 1, updatedAt: nowIso }))
+      core.append('objective/state-changed', engineActor, { objective: nextObjective, items: nextItems, code: 'notice' })
+      return nextObjective
+    },
+    promoteQueued: () => promoteQueued(core),
+    sweep: () => {
+      const blocked = guard()
+      if (blocked !== undefined) return []
+      const changed = []
+      for (const objective of [...state.objectives.values()]) {
+        const before = objective.state
+        const after = sweepObjective(core, objective, tokens?.measure)
+        if (after.state !== before) changed.push(after.id)
+      }
+      changed.push(...promoteQueued(core))
+      return changed
+    },
+    /** Dispatcher settlement: worker report/failure or verifier death. */
+    onSettled: (entry, info) => {
+      const blocked = guard()
+      if (blocked !== undefined) return
+      if (entry.role === 'worker') {
+        const item = state.items.get(entry.itemId)
+        if (item !== undefined) settleChild(core, item, info)
+      } else if (entry.role === 'verifier') {
+        const verification = state.verifications.get(entry.verificationId)
+        if (verification !== undefined && verification.state === 'requested') {
+          recordVerdict(core, { verificationId: verification.id, verdict: 'inconclusive', reason: `verifier ended without a verdict (${info?.stopReason ?? 'ended'})` }, { kind: 'engine', sessionId: verification.verifier?.sessionId ?? 'engine', presetId: verification.verifier?.presetId })
+        }
+      }
+      const objective = state.objectives.get(entry.objectiveId)
+      kick(objective?.owner?.sessionId)
+    },
+    snapshotNow: () => store.writeSnapshot(serializeState(state)),
+    close: () => {
+      try {
+        if (state.engine.mode !== 'degraded') store.writeSnapshot(serializeState(state))
+      } catch {
+        /* best effort */
+      }
+      store.close()
+    },
+  }
   return engine
 }

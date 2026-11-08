@@ -145,15 +145,27 @@ export const resolveSettings = (config) => {
         'swarm_exit',
         'systemone_ask',
         'systemone_status',
+        // Objective engine (when composed): the eleven control-plane tools.
         'objective_create',
         'objective_status',
         'objective_plan',
+        'objective_dispatch',
         'objective_report',
         'objective_verify',
-        'objective_complete',
-        'objective_cancel',
-        'objective_classify',
+        'objective_verdict',
+        'objective_ack',
+        'objective_control',
         'objective_system',
+        'objective_classify',
+        // Team tools (when the experimental team profile is composed).
+        'send_message',
+        'list_agents',
+        'wait_agent',
+        'interrupt_agent',
+        'team_task_create',
+        'team_task_list',
+        'team_task_get',
+        'team_task_update',
       ],
       personas: {
         orchestrator: {
@@ -180,6 +192,16 @@ export const resolveSettings = (config) => {
           description: 'Gathers evidence from primary sources and reports with citations',
           instructions:
             'You are the researcher. Answer from sources, not memory: go to the spec, repository, filing, or paper rather than summaries. Separate what the evidence shows, what you infer, and what remains unknown; never cite a URL you did not open.',
+        },
+        'objective-manager': {
+          description: 'Tracks objectives and progress; files work orders and status reports, and never declares its own objective complete',
+          instructions:
+            'You are the objective manager. You own an objective\'s plan, not its completion: decompose it into work orders, ask swarm_assign which persona executes each stage, dispatch with objective_dispatch, and file progress through objective_report. You never decide that an incoming message is an objective or progress — use objective_classify only for a proposal and act through explicit tools. You never verify your own objective, never record a verdict, and never mark an objective complete; ask the human to acknowledge judgment criteria. When work is blocked, budget-exhausted, or the engine is paused, report the typed reason and stop.',
+        },
+        verifier: {
+          description: 'Independently verifies one pinned commit against an objective\'s criteria and reports per-criterion evidence',
+          instructions:
+            'You are an independent verifier. Read the actual commit and run the checks yourself; cite command, exit code, and file hash for every criterion. You may not edit source, create objectives, or declare an objective complete — only report approve/reject/inconclusive per criterion to objective_verdict. If the workspace is dirty, the commit differs from the pinned one, or evidence is missing, report inconclusive rather than guessing.',
         },
       },
     },

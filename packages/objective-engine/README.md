@@ -1,138 +1,192 @@
-# @local/objective-engine — objective/progress orchestrator
+# @local/objective-engine — objective/progress control plane
 
-A durable, event-driven driver for an orchestrator that tracks **objectives** and
-**progress** and keeps working over time:
+A durable, event-driven control plane for an orchestrator that tracks
+**objectives** and **progress** and keeps working over time without ever
+calling itself:
 
 - an **objective** is a body of work with checkable criteria, an owner session,
-  and a progress-prompt budget;
-- **progress** is a work order, status report, or heartbeat recorded against an
-  objective;
-- the engine journals both, an **independent verifier** gates completion, and a
-  **driver** drops progress prompts into the owning session whenever there is
-  work and budget — on idle edges, after a tracked child settles, and on a coarse
-  timer. It never performs stage work itself.
+  a scope, six budget counters, and a closed state machine;
+- **progress** is a work order (dispatchable), a status report (evidence), or a
+  heartbeat (liveness only), recorded against an objective;
+- the engine journals every mutation, admits work within measured limits,
+  starts workers and the verifier itself, gates completion on an independent
+  verdict (plus a human acknowledgment for judgment criteria), and wakes the
+  owning orchestrator only on events.
 
-The engine boots **paused**: nothing runs until a session calls
-`objective_system` with `action: "resume"`.
+It never does stage work. The session it wakes is the orchestrator: it
+decomposes, asks `swarm_assign` for personas, dispatches through the engine,
+accepts reports, and requests verification. Mammoth classification is reachable
+only through `objective_classify` and is advisory.
 
-## Why it exists
-
-DeepSeek Harness sessions are turn-driven. A swarm orchestrator that only runs
-when the human speaks is not an orchestrator; it is a very smart todo list. This
-engine supplies the missing loop while keeping it bounded:
-
-- **objectives are explicit** (`objective_create` + criteria), so "satisfied" is
-  a state, not a feeling;
-- **progress is recorded** (`objective_plan`, `objective_report`), so the
-  orchestrator's own work orders and reports survive context compaction;
-- **completion is gated** (`objective_verify` from a different session, then
-  `objective_complete` by the owner), so the producer cannot grade itself;
-- **the loop is budgeted** (rounds, admission caps, paused by default), so
-  "runs indefinitely" means *keeps working across objectives over time*, not an
-  unbounded token fire.
+The engine boots **paused** after every host start. A human resumes it from a
+top-level session with `objective_system { action: "resume" }`.
 
 ## Install
 
 The bundle is a normal DSH plugin package (no build step, no runtime
-dependencies):
+dependencies: Node 24 built-ins and the harness services only):
 
 ```text
 DSH Web → Plugins (sidebar) → Add plugin → local directory
     choose: <repo>/packages/objective-engine
 ```
 
-Or wire it manually like the other local bundles: add
+Or wire it by hand like the other local bundles: add
 `"@local/objective-engine": "link:<absolute path>"` to the profile's
 `dependencies`, add `@local/objective-engine` to `dsh.profile.bundles`, run
-`pnpm install` in the profile, reload.
+`pnpm install` in the profile, restart DSH.
 
-After activation the tools appear as host tools in every session. The engine
-registers one row (`objective-engine`); deployment values go in the profile patch
-override for that row.
+The bundle inserts one row (`objective-engine`). Every field has a default;
+deployment values go in the profile patch row of the same id
+([example](../../examples/profile-patch.example.yml)). Install the
+[`dsh-personas`](../dsh-personas) bundle too: it ships the `objective-manager`
+and `verifier` presets the engine dispatches to, and the
+[`dsh-systemone`](../dsh-systemone) bundle provides `swarm_assign`, the
+decision-plane seam for the classifier, and the sidebar Objectives block.
 
-## Configuration
+## The loop
 
-Profile patch row `objective-engine` (all fields optional):
+```text
+human  objective_system {action:"resume"}                 # arms the driver (human, top-level session)
+human  objective_create {statement, criteria:[…], scope}  # the human creates objectives
+engine WAKEUP → manager
+manager objective_plan {action:"add", title, detail, acceptance:[…], criterionIds:["c1"]}
+manager swarm_assign {stage}  →  persona
+manager objective_dispatch {itemId, persona, brief}        # engine starts the child with that preset
+child   objective_report {objectiveId, itemId, text, evidence:[…]}
+engine  child settles → WAKEUP → manager
+manager objective_plan {action:"accept", itemId}           # producer cannot accept its own work
+manager objective_verify {objectiveId}                     # engine pins HEAD, starts the verifier child
+verifier objective_verdict {verificationId, verdict, commit, workspaceClean, evidence:[…]}
+engine  approve → completed (mechanical) | awaiting-human (judgment criteria)
+human   objective_ack {objectiveId, decision:"ack"}        # completes; "send-back" pauses
+```
 
-| Field | Default | Meaning |
-|---|---|---|
-| `enabled` | `true` | Agent: when false the driver and tools refuse work; the registry still loads. |
-| `dataDir` | `$DSH_HOME/storages/objective-engine` | Directory holding `journal.jsonl`. |
-| `maxActiveObjectives` | `3` | Objectives in `active` state; more are queued. |
-| `maxQueuedObjectives` | `16` | Durable queue depth; beyond both caps creation is rejected `admission-full`. |
-| `maxRoundsPerObjective` | `12` | Progress prompts per objective before it blocks `budget-exhausted`. |
-| `progressIntervalMs` | `45000` | Timer cadence: a prompt is due after this idle gap. |
-| `minWakeGapMs` | `8000` | Minimum gap between two prompts to one session. |
-| `tickMs` | `20000` | Driver timer resolution. |
-| `classification.enabled` | `true` | Auto-tag incoming user messages with the advisory classifier. |
+Every arrow after `objective_create` is an event: a child settling, the owner
+going idle, a verdict, or the coarse sweep timer. There is no self-calling turn
+and no background model loop; an idle engine spends nothing.
+
+## Records and states
+
+**Objective** — `proposed → queued → active ⇄ paused`, `active → verifying →
+awaiting-human → completed`, `active → blocked`, any open state `→ cancelled`.
+`completed` and `cancelled` are terminal. `armed` is false after every pause,
+block, or restart; only a human resume sets it.
+
+**Work item** — `queued → dispatched → reported → accepted | rejected`,
+`dispatched → failed`, open `→ cancelled`. A failed or rejected item is terminal:
+the retry is a new item.
+
+**Verification** — `requested → approved | rejected | inconclusive`,
+`approved → acked`, any `→ superseded` (criteria edit, send-back). A record that
+covers a strict subset of the criteria is **advisory** and can never complete
+the objective.
+
+**Criteria** — `{ id, statement, check, requiresHumanAck }` with
+`check.kind` ∈ `command` (`command`, `cwd?`, `expectedExitCode`), `artifact`
+(`path`, `sha256?`), `human-ack` (`prompt`), `evidence` (a string criterion;
+the verifier cites what it ran or read). A `human-ack` criterion, or any
+criterion with `requiresHumanAck: true`, needs `objective_ack` after the
+verifier's approval. Purely mechanical objectives complete on the approval.
 
 ## Tools
 
-| Tool | Purpose |
-|---|---|
-| `objective_create` | Create an objective (statement + ≥1 criterion + optional round budget/idempotency key). The caller session owns it. |
-| `objective_status` | Engine state, limits, counters, objectives, progress, verifications, tags, wakes. |
-| `objective_plan` | Record a progress item: `work-order`, `status-report`, or `heartbeat`. |
-| `objective_report` | Report progress, or update an existing item (`reported`, `failed`, `ready`). |
-| `objective_verify` | Record an independent verdict (`pass`/`fail`/`inconclusive`) with evidence. The owner session is rejected. |
-| `objective_complete` | Owner-only; requires a latest `pass` verdict. Frees a slot, promotes a queued objective. |
-| `objective_cancel` | Owner-only; stop an active/queued/blocked objective. |
-| `objective_classify` | Ask Mammoth whether a message is a new objective, progress, or not work — advisory only, journaled as a tag. |
-| `objective_system` | `resume`, `pause`, or `status` for the driver. |
+| Tool | Who | Purpose |
+|---|---|---|
+| `objective_create` | human (direct human message, top-level session) | Create an objective: statement, 1–12 criteria, priority, scope, budget. Beyond the active cap it queues. With `allowAgentProposedObjectives` an agent creates a `proposed` record a human must approve. |
+| `objective_status` | anyone | Engine mode, counts, limits, measured load, classifier health, wakeups, recent events, and the redacted records (`objectiveId` narrows). |
+| `objective_plan` | owner | `add` a work order / status report / heartbeat; `accept`, `reject`, `cancel` an item. |
+| `objective_dispatch` | owner | Start a worker child for a queued work order with the persona `swarm_assign` returned. Provenance is recorded by the engine. |
+| `objective_report` | assigned child (item) / owner (objective level) | File evidence or a heartbeat. Reports never complete anything. |
+| `objective_verify` | owner or human | Request verification once every linked work order is accepted. Pins the commit, starts the verifier child with a distinct preset. |
+| `objective_verdict` | the verifier child | Per-criterion evidence and `approve` / `reject` / `inconclusive`. Producers are rejected; missing evidence, a wrong commit, or a dirty workspace downgrade to inconclusive. |
+| `objective_ack` | human | `ack` completes an approved objective with judgment criteria; `send-back` pauses it with a note. |
+| `objective_control` | human | `approve`, `pause`, `resume`, `cancel`, `edit` (criteria edits supersede verifications), `budget-raise`, `reset-attempts`. |
+| `objective_system` | human (`resume`), top-level session (`pause`) | The driver: `resume` (optionally `resumeAll` after a restart), `pause` (kill switch), `status`. |
+| `objective_classify` | anyone | Advisory Mammoth proposal: `new_objective`, `attach:<id>`, `not_work`, `ambiguous`, `none_fit`. Journaled; never applied. |
 
-Every tool result is JSON. Mutations append a journal event before they
-acknowledge, so a crash never loses acknowledged state.
+Every tool result is lossless JSON with `ok` and, on failure, a stable `code`
+(`unauthorized`, `record-incomplete`, `stale-revision`, `admission-rejected`,
+`admission-busy` with `retryAfterMs`, `budget-exhausted`, `not-ready`,
+`verification-required`, `ack-incomplete`, `objective-terminal`,
+`engine-paused`, `engine-degraded`, `classifier-unavailable`, …).
 
-## Drive an orchestrator
+## Authority
+
+Execution-time checks, not prompt rules: creation, approval, control, ack, and
+resume require a **direct human message in the current open turn of a
+top-level session** (the `dsh-tool-goal` pattern). Engine wakeups carry their
+own source kind and never inherit that authority. Plans, dispatches, and
+verification requests require the **owner session**. Item reports require the
+**assigned child**. Verdicts require the **verifier the engine started**; when
+no subagent service is composed the record is `external` and any non-producer
+session with a different preset may answer.
+
+## Budgets, admission, and load
+
+Per objective: `rounds` (admitted engine prompts), `tokens` (through
+`ctx.tokenMeter` when present), `wallTimeMs`, `items`, `verifierRuns`,
+`concurrency`. Exhaustion blocks the objective with `budget-exhausted`; nothing
+retries it; a human raises the budget and resumes.
+
+Admission: `maxActiveObjectives` (active, verifying, awaiting-human),
+`maxQueuedObjectives`, `maxObjectivesPerOwnerSession`, duplicate statements
+within 24 h, overlapping `scope.paths` between active objectives. Load is
+measured separately: `maxInFlightItemsGlobal`, `maxActiveItemsPerObjective`,
+`maxDispatchesPerHour`, `maxConcurrentVerifierRuns`, per-day verifier runs.
+Backpressure stops work wakeups but keeps verdict, failure, and ack handling;
+two hot sweeps journal `engine/overloaded` once per hour.
+
+## Storage and durability
 
 ```text
-1. objective_system { action: "resume" }        # arm the driver
-2. objective_create {
-     statement: "Ship the login rate limiter",
-     criteria: ["tests pass", "reviewer approves"],
-     budgetRounds: 12
-   }
-3. (the engine now sends progress prompts on idle edges, child settlement, and
-   the timer — each one consumes one round)
-4. objective_plan { objectiveId, text: "Implement token bucket in auth/limiter.ts" }
-5. (dispatch the work order to a subagent; record results with objective_report)
-6. A different session — e.g. a reviewer child — calls
-   objective_verify { objectiveId, verdict: "pass", evidence: "pnpm test exited 0; diff reviewed" }
-7. objective_complete { objectiveId }
+$DSH_HOME/storages/objective-engine/
+  journal.jsonl    hash-chained command events (opm/v1), fsynced per append
+  advisory.jsonl   classifier proposals — never part of the fold
+  snapshot.json    periodic full fold, a load accelerator only
+  LOCK             pid + startedAt; a second engine on the directory stays degraded
+  PAUSED           optional operator sentinel: forces paused, refuses resume
 ```
 
-The progress prompt tells the session what remains, the latest advisory
-classification, and the round budget. When the budget runs out the objective
-blocks (`budget-exhausted`) instead of prompting forever; pause the whole driver
-with `objective_system { action: "pause" }`.
+- Commit-before-ack: a mutation is acknowledged only after its line is on disk.
+  A write failure makes the engine **degraded** (read-only) rather than guessing.
+- The whole chain is validated from genesis on every load; a torn tail is
+  truncated, a gap or hash mismatch refuses to serve (`engine-degraded`).
+- Idempotency: `objective_create` with `idempotencyKey` replays the original
+  result for the same payload and fails `idempotency-conflict` for a different
+  one; wakeups carry `opm:v1:wake:<objective>:<occurrence>` keys.
+- Restart: dispatched items fail (`process-restart`), requested verifications
+  become inconclusive, active objectives are paused and disarmed, pending
+  wakeups expire, and the engine starts paused. Nothing wakes at boot.
 
-## Advisoriness of the classifier
+## Operator runbook
 
-Mammoth classification (`objective_classify`, and the automatic tagging of user
-messages in owner sessions) never mutates objective state. It records a
-`tag` event (`choice`, `newObjectiveP`, text preview, model id) that the
-orchestrator may read and reason about. The deterministic boundary is the tool
-call: objectives exist because `objective_create` ran, not because a classifier
-said so.
+| Situation | What to do |
+|---|---|
+| Fresh start | `objective_system {action:"resume"}` from a top-level session in a human turn |
+| After a host restart | `swarm_enter` again in the manager session, then `objective_system {action:"resume", resumeAll:true}` or `objective_control {action:"resume"}` per objective |
+| Stop everything now | `objective_system {action:"pause"}`; it survives restart. Or create `PAUSED` in the data directory |
+| `blocked: budget-exhausted` | `objective_control {action:"budget-raise", budget:{rounds: N}}`, then `resume` |
+| `blocked: verification-failed` | `objective_control {action:"reset-attempts"}` or `edit` the criteria, then `resume` |
+| `blocked: worker-failures` | read the failed items in `objective_status`, fix the brief or scope, `reset-attempts`, `resume` |
+| `awaiting-human` for days | `objective_ack {decision:"ack"}` or `send-back`; after `maxAckAgeMs` it blocks `human-ack-timeout` |
+| `engine-degraded` | read `objective_status.engine.degraded`; stop the host, back up the directory, remove a stale `LOCK` only if its pid is dead, or restore `journal.jsonl` from the last good line; delete `snapshot.json` to force a full replay |
+| Reset completely (destructive) | stop the host, move the data directory aside; every objective is gone and must be recreated |
+| Remove the bundle | pause first, remove the bundle from the profile, keep the directory for audit |
 
-## Storage, safety, limits
+## Configuration
 
-- **Journal:** `$DSH_HOME/storages/objective-engine/journal.jsonl`, one JSON
-  event per line, fsynced per append, torn tail truncated on load.
-- **Boots paused** on every process start; resuming is explicit.
-- **Admission:** active objectives are capped; additional objectives queue and
-  are promoted on completion/cancellation (fair per owner session, FIFO).
-- **Verification:** a verdict must come from a session different from the
-  owner; the latest verdict must be `pass` at completion. Evidence is stored
-  verbatim.
-- **Wakes** are recorded before delivery; one prompt per objective round. If the
-  owning session is not live in this process, the prompt waits for the next idle
-  edge.
-- **Not implemented (kept out deliberately for this first version):** commit
-  pinning and worktree isolation, human acknowledgment for judgment criteria,
-  cross-process leader election, and a dedicated objectives page in the Web UI
-  (the right-sidebar **Swarm** panel renders the engine snapshot when both
-  plugins are composed).
+See [`docs/configuration.md`](../../docs/configuration.md#7-localobjective-engine-configuration)
+for every field. The ones you are most likely to change:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `maxActiveObjectives` / `maxQueuedObjectives` / `maxObjectivesPerOwnerSession` | 3 / 32 / 3 | Admission bounds |
+| `maxRoundsPerObjective` | 12 | Admitted engine prompts per objective |
+| `progressIntervalMs` / `minWakeGapMs` / `tickMs` | 45 s / 8 s / 20 s | Driver cadence |
+| `verifierPresets` | `[verifier, reviewer]` | Presets tried for the verifier child (must differ from the producer's) |
+| `allowAgentProposedObjectives` | `false` | Agent-created objectives are `proposed` until a human approves |
+| `classification.*` | design thresholds | Advisory classifier thresholds, breaker, auto-tagging |
 
 ## Tests
 
@@ -141,7 +195,11 @@ cd packages/objective-engine
 node test/run.mjs        # or: pnpm test
 ```
 
-The suite covers boot/pause, create/admission/queue promotion, progress,
-the verifier gate, cancellation, budget blocking, advisory classification
-(in-process and auto-tag), restart fold, torn-tail repair, tool definitions,
-and the driver pump (paused, resume, one prompt per idle edge, budget stop).
+Sixteen sections over a fake Cordis context: boot/lock/sentinel, torn tail and
+hash chain, record completeness and human authority, admission and queue
+promotion, agent-proposed objectives, the full completion gate with dispatch
+provenance and commit pinning, mechanical completion and send-back, budgets,
+restart reconstruction and replay determinism, wakeups and the pre-step fence,
+coalescing and backpressure, the kill switch, the advisory classifier with the
+outage policy and the replay paradox, the decision-rule table, fallback paths,
+and tool wiring against the registry contract (no external dependency needed).

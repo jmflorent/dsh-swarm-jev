@@ -130,8 +130,12 @@ It shows, live:
   loop guard, and `swarm_assign` stage → persona — with the counters beside it.
 
 When the `@local/objective-engine` bundle is also composed, the panel adds an
-**Objectives** block: the engine's paused/running state, admission counts, and
-each tracked objective with its round budget.
+**Objectives** block: the engine mode, its counts (active, queued, verifying,
+blocked, completed), and each open objective with its state, blocked reason,
+and round budget. The host half also provides the `systemone` service
+(`decide`, `status`) the engine's advisory classifier uses, ships the
+`objective-manager` and `verifier` personas in the default `swarm.personas`
+catalog, and lists the eleven `objective_*` tools in `swarm.orchestratorTools`.
 
 The panel polls every 3 s (paused in a hidden tab; refresh on visibility) and
 has a manual refresh button. Its **»** button collapses the sidebar; the

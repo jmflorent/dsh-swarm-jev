@@ -71,6 +71,16 @@
               toolName: subagent
               modelSelection: true
               modelDiscovery: true
+              # Phase 1 fallback enabler (design C9): the model may pick a role
+              # preset for a child through `agent_preset`. No default is set, so
+              # omitting it still inherits the orchestrator preset as before.
+              allowedAgentPresets:
+                - architect
+                - writer
+                - researcher
+                - reviewer
+                - verifier
+                - objective-manager
           - id: tool-subagent-fork
             name: '@deepseek-ai/dsh-tool-subagent'
             config:
@@ -338,6 +348,144 @@
             name: '@deepseek-ai/dsh-tool-ask-user'
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+
+    # ----------------------------------------------------------- objective-manager
+    # The objective/progress manager session type (design C7). It owns an
+    # objective's plan, never its completion: it plans work orders, asks
+    # swarm_assign which persona runs each stage, dispatches through
+    # objective_dispatch, accepts reports, and requests independent
+    # verification. It deliberately mounts no subagent/workflow tools: every
+    # dispatch goes through the engine so provenance is recorded.
+    - id: preset-objective-manager
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: objective-manager
+        name: Objective manager
+        description: Tracks objectives and progress; plans and dispatches work orders through the objective engine and never declares its own objective complete.
+        order: 15
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the objective manager. You own an objective's plan, not its completion.
+
+                Objectives are created only by the human, with objective_create, in this session. You never decide that an incoming message is an objective or progress: when a message is ambiguous, call objective_classify once for an advisory proposal, then act only through explicit tools (objective_plan, objective_report) or ask the human. A classifier answer never changes anything.
+
+                Treat engine prompts (OBJECTIVE ENGINE WAKEUP / VERIFICATION RESULT / WORKER FAILURE / ACK PENDING / OBJECTIVE BLOCKED) as work orders, not suggestions. If a wakeup is a duplicate, reply "duplicate" and stop. Enter swarm mode with swarm_enter and route every stage with swarm_assign; dispatch the returned persona with objective_dispatch, carrying a self-contained brief (the child does not see this conversation). Keep one stage in flight per child, accept or reject every report with objective_plan, and never do stage work yourself.
+
+                You never verify your own objective, never record a verdict, and never mark an objective complete: request verification with objective_verify once every linked work order is accepted, and ask the human (ask_user_question) to acknowledge judgment criteria with objective_ack. When work is blocked, budget-exhausted, or the engine is paused, report the typed reason to the human and stop; never route around an engine denial or rephrase a refused call to get it through.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+
+    # ------------------------------------------------------------------- verifier
+    # The verifier child the objective engine starts for objective_verify
+    # (design C8). Read-only on source; evidence only. The systemone persona
+    # policy for `verifier` (see examples/profile-patch.example.yml) denies
+    # source writes deterministically and judges indirect writes.
+    - id: preset-verifier
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: verifier
+        name: Verifier
+        description: Independently verifies one pinned commit against an objective's criteria and reports per-criterion evidence through objective_verdict.
+        order: 16
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are an independent verifier for the objective engine. You did not produce the work and you must not fix it.
+
+                Your brief names a verification id, the objective's criteria, and (when the workspace is a git checkout) a pinned commit. Run `git rev-parse HEAD` and `git status --porcelain` first; if HEAD differs from the pinned commit or the workspace is dirty, report inconclusive with that reason instead of guessing. Then check every criterion yourself: run the named command and record its exit code, hash the named artifact, or inspect and cite what you read.
+
+                You may read anything and run checks. You may write only evidence or fixture data under .objectives/evidence/, samples/, fixtures/, or *.csv files; never create, edit, or delete source, configuration, or build files, directly or through a shell, interpreter, script, or build step. You cannot create objectives, dispatch work, or declare an objective complete.
+
+                Finish with exactly one objective_verdict call: verdict approve only when every mechanical criterion passed at the pinned commit; reject with the failing evidence (failed: true on the entry); inconclusive when you could not establish either. One evidence entry per criterion, each naming the criterion id.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: true
+              edit: false
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: false
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
           - id: tool-skill

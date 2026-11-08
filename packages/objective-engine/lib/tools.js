@@ -1,105 +1,174 @@
 /**
- * Model-facing tools of the objective engine.
- *
- * Tool identity is the deterministic boundary for the two message types: an
- * objective is created with objective_create, progress is planned or reported
- * with objective_plan / objective_report. Mammoth classification stays
- * advisory (objective_classify and the journaled auto-tags), and a producer
- * can never complete its own objective without an independent pass verdict.
+ * Model-facing tools (design §8.2): eleven host-plane tools whose execute
+ * bodies re-check authority before touching the engine. Tool identity is
+ * the deterministic boundary between objectives and progress; Mammoth is
+ * reachable only through objective_classify and is advisory.
  */
+import { fullStatus } from './status.js'
 
 const renderJson = (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }]
 
-/** Build a registry-ready definition without importing the tools package. */
 const tool = ({ name, description, parameters, execute }) => ({
   name,
   description,
   parameters,
   output: { schema: {}, render: renderJson },
   async execute(args, exec) {
-    return await execute(args !== undefined && args !== null && typeof args === 'object' ? args : {}, exec)
+    const value = await execute(args !== undefined && args !== null && typeof args === 'object' ? args : {}, exec)
+    // Tool output must be lossless JSON: drop undefined-valued keys.
+    return JSON.parse(JSON.stringify(value))
   },
 })
 
-const sessionOf = (exec) => (typeof exec?.agent?.session?.id === 'string' ? exec.agent.session.id : undefined)
-
-const presetOf = (ctx, exec) => {
-  try {
-    const registry = ctx.get?.('agentPresets')
-    const preset = registry?.presetForSession?.(exec?.agent?.session)
-    return typeof preset === 'string' ? preset : undefined
-  } catch {
-    return undefined
-  }
+const str = (description) => ({ type: 'string', description })
+const int = (description) => ({ type: 'integer', description })
+const strings = (description) => ({ type: 'array', items: { type: 'string' }, description })
+const CHECK_SCHEMA = {
+  type: 'object',
+  description: 'How a verifier proves the criterion.',
+  properties: {
+    kind: str('command | artifact | human-ack | evidence'),
+    command: str('Command to run (command checks).'),
+    cwd: str('Working directory for the command.'),
+    expectedExitCode: int('Expected exit code (default 0).'),
+    timeoutMs: int('Command timeout.'),
+    path: str('Artifact path (artifact checks).'),
+    sha256: str('Expected artifact digest.'),
+    prompt: str('Question for the human (human-ack checks).'),
+    hint: str('What evidence the verifier should cite (evidence checks).'),
+  },
+}
+const CRITERIA_SCHEMA = {
+  type: 'array',
+  description: '1–12 checkable criteria: a string (verifier evidence) or {statement, check, requiresHumanAck}.',
+  items: {
+    oneOf: [
+      { type: 'string' },
+      { type: 'object', properties: { statement: str('The checkable statement.'), check: CHECK_SCHEMA, requiresHumanAck: { type: 'boolean' } }, required: ['statement'] },
+    ],
+  },
+}
+const SCOPE_SCHEMA = {
+  type: 'object',
+  description: '{kind:"paths", paths:[…]} — two active objectives may not overlap.',
+  properties: { kind: str('paths'), paths: strings('Workspace paths this objective may change.') },
+}
+const BUDGET_SCHEMA = {
+  type: 'object',
+  description: 'Counter maxima: rounds, tokens, wallTimeMs, items, verifierRuns, concurrency.',
+  properties: {
+    rounds: int('Admitted engine prompts.'),
+    tokens: int('Token budget (measured when the token meter is composed).'),
+    wallTimeMs: int('Wall-clock budget from activation.'),
+    items: int('Work items.'),
+    verifierRuns: int('Verifier runs.'),
+    concurrency: int('Concurrent dispatched items.'),
+  },
+}
+const EVIDENCE_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      criterionId: str('Criterion id this entry proves (verdicts).'),
+      kind: str('command | artifact | inspection | evidence'),
+      command: str('Command that was run.'),
+      cwd: str('Where it ran.'),
+      exitCode: int('Exit code observed.'),
+      stdoutExcerpt: str('Up to 2 KB of output.'),
+      path: str('Artifact path.'),
+      sha256: str('Artifact digest.'),
+      note: str('What was inspected.'),
+      failed: { type: 'boolean', description: 'This entry demonstrates a failure.' },
+    },
+  },
 }
 
-/**
- * @param {{ctx: object, engine: object, classifier: object, pump: object}} options
- * @returns registry-ready tool definitions.
- */
-export const buildTools = ({ ctx, engine, classifier, pump }) => {
-  const actorOf = (exec) => ({ sessionId: sessionOf(exec), preset: presetOf(ctx, exec) })
-
+export const buildTools = ({ engine, authority, classifier, pump, statusParts }) => {
+  const actorOf = (exec) => authority.actorOf(exec)
   return [
     tool({
       name: 'objective_create',
       description:
-        'Create an objective: a body of work with checkable criteria, an owner session, and a progress-prompt budget. ' +
-        'Beyond the active limit the objective is queued instead of rejected. Requires at least one criterion; ' +
-        'the creating session becomes the owner and receives progress prompts when the engine is resumed.',
+        'Create an objective: a body of work with checkable acceptance criteria, an owner session, a scope, and budgets. Requires a direct human message in the current turn of a top-level session (the human creates objectives; an agent-created one is only "proposed" when allowAgentProposedObjectives is on). ' +
+        'Criteria may be strings (verifier evidence) or objects {statement, check:{kind:"command"|"artifact"|"human-ack"|"evidence", command?, cwd?, expectedExitCode?, path?, sha256?, prompt?}, requiresHumanAck?}. Beyond the active limit the objective is queued.',
       parameters: {
         type: 'object',
         properties: {
-          statement: { type: 'string', description: 'The objective: what state of the world should be true when it completes.' },
-          criteria: { type: 'array', items: { type: 'string' }, description: 'One or more checkable acceptance criteria.' },
-          budgetRounds: { type: 'integer', description: 'Progress-prompt budget for this objective (default 12).' },
-          priority: { type: 'number', description: 'Ordering hint among ready objectives (higher first).' },
-          idempotencyKey: { type: 'string', description: 'Repeat the same key to make creation idempotent.' },
+          statement: str('The end state that should be true when the objective completes (not an activity).'),
+          criteria: CRITERIA_SCHEMA,
+          priority: int('0 (human-urgent) … 9 (background); default 5.'),
+          scope: SCOPE_SCHEMA,
+          budget: BUDGET_SCHEMA,
+          idempotencyKey: str('Repeat the same key to make creation idempotent.'),
+          allowDuplicate: { type: 'boolean', description: 'Allow a statement identical to one created in the last 24h.' },
         },
         required: ['statement', 'criteria'],
       },
-      execute: (args, exec) => {
-        const result = engine.create(args, actorOf(exec))
-        if (result.ok && pump !== undefined) pump.kick(sessionOf(exec))
-        return result
-      },
+      execute: (args, exec) => engine.create(args, actorOf(exec)),
     }),
     tool({
       name: 'objective_status',
-      description:
-        'Read the objective engine: paused/running state, limits and counters, every objective with its progress counts, ' +
-        'progress items, verifications, recent classification tags, and the latest progress-prompt wakes.',
-      parameters: { type: 'object', properties: {} },
-      execute: () => engine.status(),
+      description: 'Read the engine: mode, counts, limits, measured load, classifier health, pending wakeups, recent events, and every objective with its items and verifications (redacted). Optional objectiveId narrows the records.',
+      parameters: { type: 'object', properties: { objectiveId: str('Only this objective.') } },
+      execute: (args, exec) => fullStatus(statusParts(), { sessionId: actorOf(exec).sessionId, objectiveId: typeof args.objectiveId === 'string' ? args.objectiveId : undefined }),
     }),
     tool({
       name: 'objective_plan',
       description:
-        'Record a progress item for an active objective. A work-order is a dispatchable next step; status-report and ' +
-        'heartbeat record observed progress without work. Work orders are what the orchestrator dispatches to subagents.',
+        'Owner-only progress planning. action "add" (default) records a work-order {title, detail, acceptance:[…], criterionIds:[…]} (dispatchable) or a status-report/heartbeat; "accept" / "reject" {itemId, reason} judge a reported item (the producer cannot accept its own work; rejected items are terminal); "cancel" {itemId} stops an open item.',
       parameters: {
         type: 'object',
         properties: {
-          objectiveId: { type: 'string', description: 'Objective id.' },
-          text: { type: 'string', description: 'The step, work order, or observation.' },
-          kind: { type: 'string', description: 'work-order (default), status-report, or heartbeat.' },
+          objectiveId: str('Objective id (required for add).'),
+          action: str('add | accept | reject | cancel'),
+          kind: str('work-order (default) | status-report | heartbeat'),
+          title: str('Short title of the work order.'),
+          detail: str('What exactly to do.'),
+          acceptance: strings('Checkable acceptance entries for the work order.'),
+          criterionIds: strings('Objective criteria this work order advances (e.g. ["c1"]).'),
+          itemId: str('Item to accept/reject/cancel.'),
+          reason: str('Reason for reject/cancel.'),
+          deferred: strings('Acceptance entries deferred on a partial acceptance.'),
+          acceptWithoutEvidence: { type: 'boolean', description: 'Accept a report that carries no evidence (recorded).' },
+          expectedRevision: int('Optional compare-and-set guard on the item.'),
         },
-        required: ['objectiveId', 'text'],
       },
       execute: (args, exec) => engine.plan(args, actorOf(exec)),
     }),
     tool({
-      name: 'objective_report',
+      name: 'objective_dispatch',
       description:
-        'Report progress for an active objective: either a status report attributed to the caller, or a state update on ' +
-        'an existing progress item (reported, failed, or ready). The producer reports; it never completes.',
+        'Owner-only: start a worker child for a queued work order. Pass the persona swarm_assign returned and a self-contained brief; the engine starts the child with that preset, records the provenance, and settles the item when the child ends. Refused while the engine is paused, the objective is disarmed, or admission is busy (admission-busy carries retryAfterMs).',
       parameters: {
         type: 'object',
         properties: {
-          objectiveId: { type: 'string', description: 'Objective id.' },
-          progressId: { type: 'string', description: 'Optional progress item to update.' },
-          text: { type: 'string', description: 'What was done, what changed, or the blocker.' },
-          state: { type: 'string', description: 'Optional new item state: reported, failed, or ready.' },
+          itemId: str('Queued work-order id.'),
+          persona: str('Persona/preset id from swarm_assign (architect, writer, researcher, reviewer, …).'),
+          brief: str('Self-contained brief for the child: files, interfaces, acceptance, constraints.'),
+          instructions: str('Optional persona instructions returned by swarm_assign.'),
+          reassign: { type: 'boolean', description: 'Allow a different persona than the item was planned for.' },
+          external: { type: 'boolean', description: 'Fallback when no subagent service is composed: mark dispatched and bind the child later with objective_report.' },
+          expectedRevision: int('Optional compare-and-set guard on the item.'),
+        },
+        required: ['itemId', 'persona', 'brief'],
+      },
+      execute: (args, exec) => engine.dispatch(args, actorOf(exec)),
+    }),
+    tool({
+      name: 'objective_report',
+      description:
+        'Report progress. The assigned child reports on its work order {itemId, text, evidence:[…]} (kind "heartbeat" only proves liveness); the owner files objective-level status reports {text}. Reports never complete anything and cannot create work orders.',
+      parameters: {
+        type: 'object',
+        properties: {
+          objectiveId: str('Objective id.'),
+          itemId: str('Work order being reported (child) — omit for an objective-level report (owner).'),
+          text: str('What was done, how it was checked, or the blocker.'),
+          kind: str('status-report (default) | heartbeat'),
+          evidence: { ...EVIDENCE_SCHEMA, description: 'Up to 3 entries: {kind:"command", command, exitCode} or {kind:"artifact", path, sha256}.' },
+          childSessionId: str('Fallback only: bind an externally started child to the item (owner).'),
+          expectedRevision: int('Optional compare-and-set guard on the item.'),
         },
         required: ['objectiveId'],
       },
@@ -108,90 +177,106 @@ export const buildTools = ({ ctx, engine, classifier, pump }) => {
     tool({
       name: 'objective_verify',
       description:
-        'Record an independent verification verdict for an active objective. The objective owner session is rejected; ' +
-        'a pass verdict is required before the owner may call objective_complete. Evidence must be concrete.',
+        'Owner (or human): request independent verification of an active objective. Requires every linked work order to be accepted (or force:true). The engine pins the commit, starts a verifier child with a distinct preset, and the verifier answers through objective_verdict. A subset of criterionIds makes an advisory verification that can never complete the objective.',
       parameters: {
         type: 'object',
         properties: {
-          objectiveId: { type: 'string', description: 'Objective id.' },
-          verdict: { type: 'string', description: 'pass, fail, or inconclusive.' },
-          evidence: { type: 'string', description: 'Commands, exit codes, hashes, links — what you checked.' },
+          objectiveId: str('Objective id.'),
+          criterionIds: strings('Optional subset (advisory).'),
+          force: { type: 'boolean', description: 'Verify even when no work order is linked.' },
+          expectedRevision: int('Optional compare-and-set guard.'),
         },
-        required: ['objectiveId', 'verdict', 'evidence'],
+        required: ['objectiveId'],
+      },
+      execute: (args, exec) => engine.verify(args, actorOf(exec)),
+    }),
+    tool({
+      name: 'objective_verdict',
+      description:
+        'Verifier only: record the verdict for a verification with per-criterion evidence. approve needs evidence for every mechanical criterion, the pinned commit, and a clean workspace; reject needs failing evidence; anything else is recorded inconclusive. The owner and any producer child are rejected.',
+      parameters: {
+        type: 'object',
+        properties: {
+          verificationId: str('Verification id from the brief.'),
+          verdict: str('approve | reject | inconclusive'),
+          reason: str('Why.'),
+          commit: str('git rev-parse HEAD in the verified workspace.'),
+          workspaceClean: { type: 'boolean', description: 'git status --porcelain was empty.' },
+          evidence: { ...EVIDENCE_SCHEMA, description: 'One entry per criterion: {criterionId, kind:"command"|"artifact"|"inspection", command?, exitCode?, path?, sha256?, note?, failed?}.' },
+        },
+        required: ['verificationId', 'verdict', 'evidence'],
       },
       execute: (args, exec) => engine.verdict(args, actorOf(exec)),
     }),
     tool({
-      name: 'objective_complete',
-      description:
-        'Complete an active objective. Only the owner session may call it, and only after a different session recorded a ' +
-        'pass verdict with objective_verify. Completion frees an admission slot and promotes a queued objective.',
+      name: 'objective_ack',
+      description: 'Human only (direct human message in a top-level session): acknowledge the judgment criteria of an approved objective ("ack" completes it) or send it back with a note ("send-back" pauses it).',
       parameters: {
         type: 'object',
         properties: {
-          objectiveId: { type: 'string', description: 'Objective id.' },
-          expectedRevision: { type: 'integer', description: 'Optional compare-and-set guard.' },
-          note: { type: 'string', description: 'Optional completion note.' },
+          objectiveId: str('Objective id.'),
+          decision: str('ack | send-back'),
+          criterionIds: strings('Criteria being acknowledged (default: all that require an ack).'),
+          note: str('Required for send-back.'),
+          expectedRevision: int('Optional compare-and-set guard.'),
         },
-        required: ['objectiveId'],
+        required: ['objectiveId', 'decision'],
       },
-      execute: (args, exec) => engine.complete(args, actorOf(exec)),
+      execute: (args, exec) => engine.ack(args, actorOf(exec)),
     }),
     tool({
-      name: 'objective_cancel',
-      description: 'Cancel an active, queued, or blocked objective owned by the calling session (administrative while paused).',
-      parameters: {
-        type: 'object',
-        properties: {
-          objectiveId: { type: 'string', description: 'Objective id.' },
-          reason: { type: 'string', description: 'Why it is cancelled.' },
-        },
-        required: ['objectiveId'],
-      },
-      execute: (args, exec) => engine.cancel(args, actorOf(exec)),
-    }),
-    tool({
-      name: 'objective_classify',
+      name: 'objective_control',
       description:
-        'Ask Mammoth whether a message is a new objective, progress toward the current objective, or not work. Advisory ' +
-        'only: the answer is journaled as a tag and never mutates objective state. The deterministic boundary is the tools.',
+        'Human only: approve a proposed objective, pause, resume (budget must not be exhausted), cancel, edit {statement, criteria, priority, scope} (a criteria edit supersedes every verification and pauses the objective), budget-raise {budget:{rounds,…}}, or reset-attempts.',
       parameters: {
         type: 'object',
         properties: {
-          text: { type: 'string', description: 'The message to classify.' },
-          objectiveId: { type: 'string', description: 'Optional objective the message may belong to.' },
+          objectiveId: str('Objective id.'),
+          action: str('approve | pause | resume | cancel | edit | budget-raise | reset-attempts'),
+          reason: str('Reason (pause/cancel).'),
+          statement: str('New statement (edit).'),
+          criteria: { ...CRITERIA_SCHEMA, description: 'New criteria (edit).' },
+          priority: int('New priority (edit).'),
+          scope: { ...SCOPE_SCHEMA, description: 'New scope (edit).' },
+          budget: { ...BUDGET_SCHEMA, description: 'Counters to raise (budget-raise).' },
+          expectedRevision: int('Optional compare-and-set guard.'),
         },
-        required: ['text'],
+        required: ['objectiveId', 'action'],
       },
-      execute: async (args, exec) =>
-        classifier.classify({ sessionId: sessionOf(exec), text: args.text, objectiveId: args.objectiveId }),
+      execute: (args, exec) => engine.control(args, actorOf(exec)),
     }),
     tool({
       name: 'objective_system',
       description:
-        'Control the engine driver. It boots paused: resume arms progress prompts, pause stops them. status returns the ' +
-        'engine record including pause state, limits, and counters.',
+        'Engine driver control. It boots paused after every host start. resume (human, top-level session) arms progress prompts; resumeAll:true also resumes objectives paused by the restart. pause is the kill switch: it expires wakeups, cancels engine-started children, and survives restart. status returns the engine record.',
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', description: 'resume, pause, or status.' },
-          reason: { type: 'string', description: 'Optional pause reason.' },
+          action: str('resume | pause | status'),
+          reason: str('Pause reason.'),
+          resumeAll: { type: 'boolean', description: 'Also resume objectives paused by a process restart.' },
         },
         required: ['action'],
       },
-      execute: (args) => {
-        if (args.action === 'resume') {
-          const result = engine.resume()
-          if (pump !== undefined) pump.kick()
-          return { ok: true, ...result, engine: engine.status().engine }
-        }
-        if (args.action === 'pause') {
-          const result = engine.pause(args.reason)
-          return { ok: true, ...result, engine: engine.status().engine }
-        }
-        if (args.action === 'status') return { ok: true, engine: engine.status().engine }
-        return { ok: false, code: 'action-invalid', message: 'action must be resume, pause, or status' }
+      execute: (args, exec) => {
+        const result = engine.system(args, actorOf(exec))
+        if (result.ok && args.action === 'resume' && pump !== undefined) pump.kick()
+        return { ...result, engine: fullStatus(statusParts()).engine }
       },
+    }),
+    tool({
+      name: 'objective_classify',
+      description:
+        'Ask Mammoth whether a message is a new objective, progress toward an existing objective, an objective update, not work, or none of these. Advisory only: the proposal is journaled and never changes state; act through objective_create (human) / objective_plan / objective_report, or ask the human when it is ambiguous. At most two calls per message.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: str('The message to classify.'),
+          objectiveId: str('Optional objective the message may belong to.'),
+        },
+        required: ['text'],
+      },
+      execute: (args, exec) => classifier.classify({ sessionId: actorOf(exec).sessionId, text: args.text, objectiveId: args.objectiveId }),
     }),
   ]
 }
