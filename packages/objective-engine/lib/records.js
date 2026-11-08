@@ -114,7 +114,8 @@ export const normalizeCriterion = (input, index) => {
   if (!isRecord(input)) return undefined
   const statement = clampText(input.statement, 1000)
   if (statement === '') return undefined
-  const rawCheck = isRecord(input.check) ? input.check : { kind: 'evidence' }
+  if (input.check !== undefined && !isRecord(input.check)) return { error: `criterion ${id}: check must be an object` }
+  const rawCheck = input.check === undefined ? { kind: 'evidence' } : input.check
   const kind = CHECK_KINDS.has(rawCheck.kind) ? rawCheck.kind : undefined
   if (kind === undefined) return { error: `criterion ${id}: check.kind must be one of ${[...CHECK_KINDS].join(', ')}` }
   let check
@@ -131,6 +132,7 @@ export const normalizeCriterion = (input, index) => {
   } else if (kind === 'artifact') {
     const path = clampText(rawCheck.path, 1000)
     if (path === '') return { error: `criterion ${id}: an artifact check needs a path` }
+    if (rawCheck.sha256 !== undefined && !/^[0-9a-f]{64}$/i.test(String(rawCheck.sha256))) return { error: `criterion ${id}: sha256 must be 64 hex characters` }
     check = {
       kind,
       path,

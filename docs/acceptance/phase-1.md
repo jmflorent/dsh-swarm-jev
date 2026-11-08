@@ -87,6 +87,6 @@ trust model, and the deliberate non-adoptions are in
 
 An isolated headless acceptance run re-ran the Phase-1 end-to-end drill against
 0.3.0 and recorded the executed-check results in the verification record; the
-twenty-two-section suite covers both the passing path and the preflight-failure path
+twenty-three-section suite covers the passing path, the preflight-failure path, verdict-time rechecks, fallback refusal, and liveness cleanup
 (no verifier child is started). The live deployment was upgraded to 0.3.0 and
 remains paused by default.

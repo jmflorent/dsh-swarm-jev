@@ -242,18 +242,18 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   const evidence = [{ criterionId: 'c1', kind: 'command', command: 'pnpm test', exitCode: 0 }]
 
   // Producer, worker, and an unrelated session cannot verdict.
-  const ownerVerdict = h.engine.verdict({ verificationId, verdict: 'approve', evidence, commit: 'b'.repeat(40), workspaceClean: true }, h.actor(owner))
+  const ownerVerdict = await h.engine.verdict({ verificationId, verdict: 'approve', evidence, commit: 'b'.repeat(40), workspaceClean: true }, h.actor(owner))
   assert.equal(ownerVerdict.code, 'unauthorized')
-  const workerVerdict = h.engine.verdict({ verificationId, verdict: 'approve', evidence, commit: 'b'.repeat(40), workspaceClean: true }, h.actor(child))
+  const workerVerdict = await h.engine.verdict({ verificationId, verdict: 'approve', evidence, commit: 'b'.repeat(40), workspaceClean: true }, h.actor(child))
   assert.equal(workerVerdict.code, 'unauthorized')
-  const otherVerdict = h.engine.verdict({ verificationId, verdict: 'approve', evidence, commit: 'b'.repeat(40), workspaceClean: true }, h.actor(stranger))
+  const otherVerdict = await h.engine.verdict({ verificationId, verdict: 'approve', evidence, commit: 'b'.repeat(40), workspaceClean: true }, h.actor(stranger))
   assert.equal(otherVerdict.code, 'unauthorized')
   // Completion by the owner through any path is impossible: no tool exists; control cannot complete.
   const noComplete = humanControl(h, owner, { objectiveId: id, action: 'complete' })
   assert.equal(noComplete.code, 'action-invalid')
 
   // Wrong commit → inconclusive, objective back to active.
-  const wrong = h.engine.verdict({ verificationId, verdict: 'approve', evidence, commit: 'c'.repeat(40), workspaceClean: true }, h.actor(verifier))
+  const wrong = await h.engine.verdict({ verificationId, verdict: 'approve', evidence, commit: 'c'.repeat(40), workspaceClean: true }, h.actor(verifier))
   assert.equal(wrong.ok, true)
   assert.equal(wrong.verification.verdict.kind, 'inconclusive')
   assert.equal(wrong.verification.verdict.downgrade, 'wrong-commit')
@@ -263,7 +263,7 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   const req2 = await h.engine.verify({ objectiveId: id }, h.actor(owner))
   assert.equal(req2.ok, true)
   const ver2 = ctx.agents.get(req2.verifierSessionId)
-  const dirty = h.engine.verdict({ verificationId: req2.verification.id, verdict: 'approve', evidence, commit: 'b'.repeat(40), workspaceClean: false }, h.actor(ver2))
+  const dirty = await h.engine.verdict({ verificationId: req2.verification.id, verdict: 'approve', evidence, commit: 'b'.repeat(40), workspaceClean: false }, h.actor(ver2))
   assert.equal(dirty.verification.verdict.downgrade, 'dirty-workspace')
   assert.equal(objective(h, id).state, 'blocked')
   assert.equal(objective(h, id).blockedReason.code, 'verification-failed')
@@ -279,12 +279,12 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   const req3 = await h.engine.verify({ objectiveId: id }, h.actor(owner))
   assert.equal(req3.ok, true, JSON.stringify(req3))
   const ver3 = ctx.agents.get(req3.verifierSessionId)
-  const missing = h.engine.verdict({ verificationId: req3.verification.id, verdict: 'approve', evidence: [], commit: 'b'.repeat(40), workspaceClean: true }, h.actor(ver3))
+  const missing = await h.engine.verdict({ verificationId: req3.verification.id, verdict: 'approve', evidence: [], commit: 'b'.repeat(40), workspaceClean: true }, h.actor(ver3))
   assert.match(missing.verification.verdict.downgrade, /missing-evidence/)
   const req4 = await h.engine.verify({ objectiveId: id }, h.actor(owner))
   assert.equal(req4.ok, true, JSON.stringify(req4))
   const ver4 = ctx.agents.get(req4.verifierSessionId)
-  const approved = h.engine.verdict({ verificationId: req4.verification.id, verdict: 'approve', reason: 'all green', evidence, commit: 'b'.repeat(40), workspaceClean: true }, h.actor(ver4))
+  const approved = await h.engine.verdict({ verificationId: req4.verification.id, verdict: 'approve', reason: 'all green', evidence, commit: 'b'.repeat(40), workspaceClean: true }, h.actor(ver4))
   assert.equal(approved.ok, true, JSON.stringify(approved))
   assert.equal(approved.verification.verdict.kind, 'approve')
   assert.equal(objective(h, id).state, 'awaiting-human')
@@ -321,14 +321,14 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   assert.equal(objective(h, mech.objective.id).state, 'active')
   const req2 = await h.engine.verify({ objectiveId: mech.objective.id, force: true }, h.actor(owner))
   const ver = ctx.agents.get(req2.verifierSessionId)
-  const done = h.engine.verdict({ verificationId: req2.verification.id, verdict: 'approve', evidence: [{ criterionId: 'c1', kind: 'command', command: 'make', exitCode: 0 }], commit: 'a'.repeat(40), workspaceClean: true }, h.actor(ver))
+  const done = await h.engine.verdict({ verificationId: req2.verification.id, verdict: 'approve', evidence: [{ criterionId: 'c1', kind: 'command', command: 'make', exitCode: 0 }], commit: 'a'.repeat(40), workspaceClean: true }, h.actor(ver))
   assert.equal(done.ok, true, JSON.stringify(done))
   assert.equal(objective(h, mech.objective.id).state, 'completed', 'mechanical objective completes without an ack')
 
   const judged = createAsHuman(h, owner, { statement: 'Judged', criteria: [{ statement: 'doc reads well', check: { kind: 'human-ack' } }] })
   const req3 = await h.engine.verify({ objectiveId: judged.objective.id, force: true }, h.actor(owner))
   const ver3 = ctx.agents.get(req3.verifierSessionId)
-  h.engine.verdict({ verificationId: req3.verification.id, verdict: 'approve', evidence: [{ criterionId: 'c1', kind: 'inspection', note: 'read it' }], commit: 'a'.repeat(40), workspaceClean: true }, h.actor(ver3))
+  await h.engine.verdict({ verificationId: req3.verification.id, verdict: 'approve', evidence: [{ criterionId: 'c1', kind: 'inspection', note: 'read it' }], commit: 'a'.repeat(40), workspaceClean: true }, h.actor(ver3))
   assert.equal(objective(h, judged.objective.id).state, 'awaiting-human')
   owner.humanTurn('no')
   const back = h.engine.ack({ objectiveId: judged.objective.id, decision: 'send-back', note: 'tone is off' }, h.actor(owner))
@@ -345,7 +345,7 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   assert.equal(objective(h, judged.objective.id).criteriaVersion, 2)
   assert.equal(objective(h, judged.objective.id).state, 'paused')
   assert.ok(edited.supersededVerifications.includes(req4.verification.id))
-  const stale = h.engine.verdict({ verificationId: req4.verification.id, verdict: 'approve', evidence: [], commit: 'a'.repeat(40), workspaceClean: true }, h.actor(ctx.agents.get(req4.verifierSessionId)))
+  const stale = await h.engine.verdict({ verificationId: req4.verification.id, verdict: 'approve', evidence: [], commit: 'a'.repeat(40), workspaceClean: true }, h.actor(ctx.agents.get(req4.verifierSessionId)))
   assert.equal(stale.code, 'verification-closed', 'a superseded record accepts no verdict')
   h.close()
   section('mechanical completion (O6b), send-back, verifier death, criteria edit supersedes verification')
@@ -737,9 +737,10 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   assert.equal(req.verification.commit.pinned, false)
   // External verifier: same preset as the producer is refused; a reviewer session is accepted.
   const samePreset = ctx.makeAgent({ preset: 'orchestrator' })
-  assert.equal(h.engine.verdict({ verificationId: req.verification.id, verdict: 'approve', evidence: [{ criterionId: 'c1', kind: 'inspection' }, { criterionId: 'c2', kind: 'inspection' }] }, h.actor(samePreset)).code, 'unauthorized')
+  const samePresetVerdict = await h.engine.verdict({ verificationId: req.verification.id, verdict: 'approve', evidence: [{ criterionId: 'c1', kind: 'inspection' }, { criterionId: 'c2', kind: 'inspection' }] }, h.actor(samePreset))
+  assert.equal(samePresetVerdict.code, 'unauthorized')
   const reviewer = ctx.makeAgent({ preset: 'reviewer' })
-  const verdict = h.engine.verdict({ verificationId: req.verification.id, verdict: 'approve', evidence: [{ criterionId: 'c1', kind: 'inspection' }, { criterionId: 'c2', kind: 'inspection' }] }, h.actor(reviewer))
+  const verdict = await h.engine.verdict({ verificationId: req.verification.id, verdict: 'approve', evidence: [{ criterionId: 'c1', kind: 'inspection' }, { criterionId: 'c2', kind: 'inspection' }] }, h.actor(reviewer))
   assert.equal(verdict.ok, true, JSON.stringify(verdict))
   assert.equal(objective(h, a.objective.id).state, 'completed')
   h.close()
@@ -882,7 +883,7 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
   assert.equal(requested.verification.checks[0].exitCode, 0)
   assert.equal(requested.checks[0].passed, true)
   const verifier = ctx.agents.get(requested.verifierSessionId)
-  const verdict = h.engine.verdict(
+  const verdict = await h.engine.verdict(
     {
       verificationId: requested.verification.id,
       verdict: 'approve',
@@ -1085,7 +1086,7 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
     assert.equal(requested.verification.advisory, true, 'duplicate ids cannot turn a subset into a full-coverage request')
     assert.equal(requested.verification.criterionIds.length, 1)
     const verifier = ctx.agents.get(requested.verifierSessionId)
-    const verdict = h.engine.verdict({ verificationId: requested.verification.id, verdict: 'approve', commit: 'a'.repeat(40), workspaceClean: true, evidence: [{ criterionId: 'c1', kind: 'command', command: 'make check', exitCode: 0 }] }, h.actor(verifier))
+    const verdict = await h.engine.verdict({ verificationId: requested.verification.id, verdict: 'approve', commit: 'a'.repeat(40), workspaceClean: true, evidence: [{ criterionId: 'c1', kind: 'command', command: 'make check', exitCode: 0 }] }, h.actor(verifier))
     assert.equal(verdict.ok, true)
     assert.equal(objective(h, created.objective.id).state, 'active', 'advisory verification can never complete the objective')
     h.close()
@@ -1151,6 +1152,135 @@ const simpleCriteria = ['pnpm test exits 0', 'the README documents the flag']
     h3.close()
   }
   section('journal integrity: human reports fold, rejected events never persist, snapshots stay consistent')
+}
+
+// ---------------------------------------------------------------------------
+// 14. Checker strictness: verdict-time proof, fallbacks, liveness, validation
+// ---------------------------------------------------------------------------
+{
+  const shell = (ctx) => ctx.spawns.filter((spawn) => spawn.argv.includes('-lc')).length
+  const prepare = async (ctx, h, owner, command = 'make check') => {
+    const created = createAsHuman(h, owner, {
+      statement: 'Strict checker',
+      criteria: [{ statement: 'the command passes', check: { kind: 'command', command, expectedExitCode: 0 } }],
+    })
+    const plan = h.engine.plan({ objectiveId: created.objective.id, title: 'deliver', acceptance: ['built'], criterionIds: ['c1'] }, h.actor(owner))
+    const dispatched = await h.engine.dispatch({ itemId: plan.item.id, persona: 'architect', brief: 'build it' }, h.actor(owner))
+    const child = ctx.agents.get(dispatched.childSessionId)
+    h.engine.report({ objectiveId: created.objective.id, itemId: plan.item.id, text: 'done', evidence: [{ kind: 'command', command, exitCode: 0 }] }, h.actor(child))
+    h.engine.plan({ action: 'accept', itemId: plan.item.id }, h.actor(owner))
+    return created.objective.id
+  }
+
+  // (a) The check result at request time is not trusted at verdict time.
+  {
+    const ctx = makeCtx({ commands: { 'make check': { exitCode: 0 } } })
+    const h = compose({ ctx, clock: makeClock() })
+    const owner = ctx.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h, owner, { action: 'resume' })
+    const objectiveId = await prepare(ctx, h, owner)
+    const requested = await h.engine.verify({ objectiveId }, h.actor(owner))
+    assert.equal(requested.ok, true)
+    ctx.services.checkCommands['make check'] = { exitCode: 1, stdout: 'broken after request\n' }
+    const verifier = ctx.agents.get(requested.verifierSessionId)
+    const verdict = await h.engine.verdict(
+      { verificationId: requested.verification.id, verdict: 'approve', commit: 'a'.repeat(40), workspaceClean: true, evidence: [{ criterionId: 'c1', kind: 'command', command: 'make check', exitCode: 0 }] },
+      h.actor(verifier),
+    )
+    assert.equal(verdict.ok, true)
+    assert.equal(verdict.verification.verdict.kind, 'reject')
+    assert.match(verdict.verification.verdict.downgrade, /mechanical-check-failed/)
+    assert.equal(objective(h, objectiveId).state, 'active', 'a broken delivery after the request cannot complete')
+    h.close()
+  }
+
+  // (b) Checker unavailable: verifier claims cannot complete executable criteria by default.
+  {
+    const ctx = makeCtx()
+    delete ctx.services.subprocess
+    const h = compose({ ctx, clock: makeClock() })
+    const owner = ctx.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h, owner, { action: 'resume' })
+    const objectiveId = await prepare(ctx, h, owner)
+    const requested = await h.engine.verify({ objectiveId }, h.actor(owner))
+    assert.equal(requested.ok, true)
+    assert.equal(requested.verification.checker.mode, 'verifier')
+    const verifier = ctx.agents.get(requested.verifierSessionId)
+    const verdict = await h.engine.verdict(
+      { verificationId: requested.verification.id, verdict: 'approve', commit: 'a'.repeat(40), workspaceClean: true, evidence: [{ criterionId: 'c1', kind: 'command', command: 'make check', exitCode: 0 }] },
+      h.actor(verifier),
+    )
+    assert.equal(verdict.verification.verdict.kind, 'inconclusive')
+    assert.equal(verdict.verification.verdict.downgrade, 'checker-unavailable')
+    assert.equal(objective(h, objectiveId).state, 'active')
+    h.close()
+  }
+
+  // (c) An external verifier must declare a different preset.
+  {
+    const ctx = makeCtx()
+    delete ctx.services.subprocess
+    const h = compose({ ctx, clock: makeClock() })
+    const owner = ctx.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h, owner, { action: 'resume' })
+    const objectiveId = await prepare(ctx, h, owner)
+    const requested = await h.engine.verify({ objectiveId }, h.actor(owner))
+    const anonymous = ctx.makeAgent({}) // no preset
+    const verdict = await h.engine.verdict(
+      { verificationId: requested.verification.id, verdict: 'approve', commit: 'a'.repeat(40), workspaceClean: true, evidence: [{ criterionId: 'c1', kind: 'command', command: 'make check', exitCode: 0 }] },
+      h.actor(anonymous),
+    )
+    assert.equal(verdict.code, 'unauthorized')
+    h.close()
+  }
+
+  // (d) Malformed checks and invalid digests are rejected at creation.
+  {
+    const ctx = makeCtx()
+    const h = compose({ ctx, clock: makeClock() })
+    const owner = ctx.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h, owner, { action: 'resume' })
+    const badCheck = createAsHuman(h, owner, { statement: 'bad', criteria: [{ statement: 'x', check: 'not-an-object' }] })
+    assert.equal(badCheck.ok, false)
+    const badSha = createAsHuman(h, owner, { statement: 'bad sha', criteria: [{ statement: 'x', check: { kind: 'artifact', path: 'out.txt', sha256: 'not-hex' } }] })
+    assert.equal(badSha.ok, false)
+    h.close()
+  }
+
+  // (e) Pausing an objective closes a pending verification (no zombie slot).
+  {
+    const ctx = makeCtx({ commands: { 'make check': { exitCode: 0 } } })
+    const h = compose({ ctx, clock: makeClock() })
+    const owner = ctx.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h, owner, { action: 'resume' })
+    const objectiveId = await prepare(ctx, h, owner)
+    const requested = await h.engine.verify({ objectiveId }, h.actor(owner))
+    assert.equal(requested.ok, true)
+    const paused = humanControl(h, owner, { objectiveId, action: 'pause', reason: 'operator' })
+    assert.equal(paused.ok, true)
+    assert.equal(h.engine.state.verifications.get(requested.verification.id).state, 'inconclusive')
+    assert.equal([...h.engine.state.verifications.values()].filter((verification) => verification.state === 'requested').length, 0, 'no verifier slot is occupied')
+    assert.equal(objective(h, objectiveId).state, 'paused')
+    h.close()
+  }
+
+  // (f) A verifier that never answers is expired by the sweep.
+  {
+    const ctx = makeCtx({ commands: { 'make check': { exitCode: 0 } } })
+    const clock = makeClock()
+    const h = compose({ ctx, clock, config: baseConfig({ verificationTimeoutMs: 1000 }) })
+    const owner = ctx.makeAgent({ preset: 'orchestrator' })
+    humanSystem(h, owner, { action: 'resume' })
+    const objectiveId = await prepare(ctx, h, owner)
+    const requested = await h.engine.verify({ objectiveId }, h.actor(owner))
+    assert.equal(requested.ok, true)
+    clock.advance(5000)
+    h.engine.sweep()
+    assert.equal(h.engine.state.verifications.get(requested.verification.id).state, 'inconclusive')
+    assert.notEqual(objective(h, objectiveId).state, 'verifying')
+    h.close()
+  }
+  section('checker strictness: verdict recheck, fallback refusal, external preset, input validation, zombie/TTL cleanup')
 }
 
 console.log(`\nobjective-engine selftests passed (${passed.length} sections)`)

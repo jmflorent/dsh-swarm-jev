@@ -538,6 +538,7 @@ row; a profile row replaces the bundle row's config wholesale):
 | `dataDir` | `$DSH_HOME/storages/objective-engine` | Journal, advisory log, snapshot, `LOCK`, optional `PAUSED`. |
 | `requireHumanAuthority` | `true` | Creation, control, ack, and resume need a direct human message in a top-level session. Only turn it off for test harnesses. |
 | `allowAgentProposedObjectives` | `false` | An agent turn may create a `proposed` objective that a human approves with `objective_control`. |
+| `allowVerifierOnlyCompletion` | `false` | Allow verifier-run evidence to complete executable criteria when the deterministic checker is unavailable. Leave off to require engine-executed checks. |
 | `maxActiveObjectives` | `3` | Objectives in `active`, `verifying`, or `awaiting-human`; more queue. |
 | `maxQueuedObjectives` | `32` | Durable queue depth; beyond it creation is `admission-rejected`. |
 | `maxObjectivesPerOwnerSession` | `3` | Open objectives one session may own. |
@@ -566,6 +567,7 @@ row; a profile row replaces the bundle row's config wholesale):
 | `stallTimeoutMs` | 30 min | A dispatched item with no report or heartbeat fails `stall`. |
 | `maxConsecutiveWorkerFailures` | `3` | Then the objective blocks `worker-failures`. |
 | `maxVerificationRejects` / `maxVerificationInconclusives` | `2` / `2` | Then the objective blocks `verification-failed`. |
+| `verificationTimeoutMs` | 10 min | A requested verification older than this is expired by the sweep. |
 | `maxAckAgeMs` | 7 days | `awaiting-human` longer than this blocks `human-ack-timeout`. |
 | `ackReminderMs` | 24 h | One ack reminder per interval. |
 

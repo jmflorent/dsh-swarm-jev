@@ -209,9 +209,10 @@ export const controlObjective = (core, input, actor) => {
       return approveObjective(core, objective, actor)
     case 'pause': {
       if (!['active', 'verifying', 'awaiting-human', 'queued'].includes(objective.state)) return fail('objective-not-pausable', `objective is ${objective.state}`)
-      const next = bump({ ...objective, state: 'paused', previousState: objective.state, armed: false, pausedReason: clampText(input?.reason, 500) || 'human' }, nowMs)
+      const closedVerifications = closeRequestedVerifications(core, objective.id, 'objective paused', 'paused')
+      const next = bump({ ...objective, state: 'paused', previousState: objective.state, armed: false, pausedReason: clampText(input?.reason, 500) || 'human', currentVerificationId: null }, nowMs)
       core.append('objective/state-changed', actor, { objective: next, from: objective.state })
-      return ok({ objective: objectiveView(core.state, next), cancelledChildren: core.cancelChildren?.(objective.id, 'objective paused') ?? 0 })
+      return ok({ objective: objectiveView(core.state, next), cancelledChildren: core.cancelChildren?.(objective.id, 'objective paused') ?? 0, closedVerifications })
     }
     case 'resume': {
       if (objective.state !== 'paused' && objective.state !== 'blocked') return fail('objective-not-paused', `objective is ${objective.state}`)
@@ -620,20 +621,62 @@ export const bindVerifier = (core, verification, verifier) => {
   return next
 }
 
-const evidenceCovers = (criterion, entry) => {
+const normalizeEvidencePath = (value) => String(value ?? '').replace(/^\.\//, '')
+export const evidenceCovers = (criterion, entry) => {
   if (entry.criterionId !== criterion.id) return false
   const kind = criterion.check.kind
-  if (kind === 'command') return entry.kind === 'command' && typeof entry.command === 'string' && typeof entry.exitCode === 'number' && entry.exitCode === criterion.check.expectedExitCode
-  if (kind === 'artifact') return entry.kind === 'artifact' && typeof entry.path === 'string' && (criterion.check.sha256 === undefined || entry.sha256 === criterion.check.sha256)
+  if (kind === 'command') {
+    return (
+      entry.kind === 'command' &&
+      typeof entry.command === 'string' &&
+      entry.command.trim() === criterion.check.command.trim() &&
+      typeof entry.exitCode === 'number' &&
+      entry.exitCode === criterion.check.expectedExitCode &&
+      (criterion.check.cwd === undefined || entry.cwd === undefined || entry.cwd === criterion.check.cwd)
+    )
+  }
+  if (kind === 'artifact') {
+    return (
+      entry.kind === 'artifact' &&
+      typeof entry.path === 'string' &&
+      normalizeEvidencePath(entry.path) === normalizeEvidencePath(criterion.check.path) &&
+      (criterion.check.sha256 === undefined || entry.sha256 === criterion.check.sha256)
+    )
+  }
   if (kind === 'human-ack') return entry.kind === 'human'
   return entry.kind === 'command' || entry.kind === 'artifact' || entry.kind === 'evidence' || entry.kind === 'inspection'
+}
+
+/**
+ * Close every still-requested verification for an objective as inconclusive.
+ * A pause or kill switch must not leave a zombie record occupying the single
+ * verifier slot; the child (if any) is cancelled too.
+ */
+const closeRequestedVerifications = (core, objectiveId, reason, code) => {
+  const nowMs = core.now()
+  let count = 0
+  for (const verification of [...core.state.verifications.values()]) {
+    if (verification.objectiveId !== objectiveId || verification.state !== 'requested') continue
+    const next = bump(
+      {
+        ...verification,
+        state: 'inconclusive',
+        verdict: { kind: 'inconclusive', requested: verification.verdict?.requested ?? 'inconclusive', reason, at: iso(nowMs), downgrade: code },
+      },
+      nowMs,
+    )
+    core.append('verification/verdict', engineActor, { verification: next })
+    count += 1
+  }
+  if (count > 0) core.cancelChildren?.(objectiveId, reason)
+  return count
 }
 
 /**
  * O5 / O6 / O6b / O7: the verifier's verdict. Only the bound verifier (or,
  * for an external record, a non-producer session) may call this.
  */
-export const recordVerdict = (core, input, actor) => {
+export const recordVerdict = (core, input, actor, final) => {
   const verification = core.state.verifications.get(clampText(input?.verificationId, 80))
   if (verification === undefined) return fail('verification-not-found', 'unknown verification')
   const objective = core.state.objectives.get(verification.objectiveId)
@@ -649,8 +692,11 @@ export const recordVerdict = (core, input, actor) => {
   if (verification.verifier?.kind === 'child' && verification.verifier.presetId !== undefined && actor.presetId !== undefined && actor.presetId !== verification.verifier.presetId) {
     return fail('unauthorized', 'verifier preset mismatch')
   }
-  if (objective.owner.presetId !== undefined && actor.presetId !== undefined && actor.presetId === objective.owner.presetId && verification.verifier?.kind !== 'child') {
-    return fail('unauthorized', 'the verifier must use a different preset than the producer')
+  if (verification.verifier?.kind !== 'child') {
+    if (actor.presetId === undefined) return fail('unauthorized', 'an external verifier must run under an explicit agent preset')
+    if (objective.owner.presetId !== undefined && actor.presetId === objective.owner.presetId) {
+      return fail('unauthorized', 'the verifier must use a different preset than the producer')
+    }
   }
   const verdictKind = VERDICTS.has(input?.verdict) ? input.verdict : input?.verdict === 'pass' ? 'approve' : input?.verdict === 'fail' ? 'reject' : undefined
   if (verdictKind === undefined) return fail('verdict-invalid', 'verdict must be approve, reject, or inconclusive')
@@ -663,7 +709,11 @@ export const recordVerdict = (core, input, actor) => {
   const covered = mechanical.filter((criterion) => evidence.some((entry) => evidenceCovers(criterion, entry)))
   // The engine's own executed checks are authoritative: a verifier approval
   // cannot override a failed mechanical check.
-  const failedChecks = (Array.isArray(verification.checks) ? verification.checks : []).filter((check) => check.passed !== true)
+  const finalChecks = final?.checks
+  const finalCommit = final?.commit
+  const checkResults = Array.isArray(finalChecks?.results) ? finalChecks.results : Array.isArray(verification.checks) ? verification.checks : []
+  const failedChecks = checkResults.filter((check) => check.passed !== true)
+  const finalFailed = Array.isArray(finalChecks?.results) ? finalChecks.results.filter((check) => check.passed !== true) : []
   const uncovered = mechanical.filter((criterion) => !covered.includes(criterion)).map((criterion) => criterion.id)
   // A non-advisory verification must cover the whole criteria set by id. This
   // closes the duplicate-id subset trap (criterionIds:["c1","c1"] is {c1}).
@@ -672,11 +722,24 @@ export const recordVerdict = (core, input, actor) => {
   const completeCoverage = !verification.advisory && requestedIds.length === allIds.length && allIds.every((id) => requestedIds.includes(id))
   let effective = verdictKind
   let downgrade
+  const executable = criteria.some((criterion) => criterion.check.kind === 'command' || criterion.check.kind === 'artifact')
   if (verification.criteriaVersion !== objective.criteriaVersion) {
     effective = 'inconclusive'
     downgrade = 'criteria-changed'
+  } else if (verdictKind === 'approve' && executable && verification.checker?.mode !== 'engine' && core.settings.allowVerifierOnlyCompletion !== true) {
+    effective = 'inconclusive'
+    downgrade = 'checker-unavailable'
   } else if (verdictKind === 'approve') {
-    if (verification.commit?.pinned && reportedCommit !== '' && reportedCommit !== verification.commit.commit) {
+    if (finalCommit?.pinned && verification.commit?.pinned && finalCommit.commit !== verification.commit.commit) {
+      effective = 'inconclusive'
+      downgrade = 'changed-since-request'
+    } else if (finalCommit?.pinned && finalCommit.dirty) {
+      effective = 'inconclusive'
+      downgrade = 'dirty-at-verdict'
+    } else if (finalFailed.length > 0) {
+      effective = 'reject'
+      downgrade = `mechanical-check-failed:${finalFailed.map((check) => check.criterionId).join(',')}`
+    } else if (verification.commit?.pinned && reportedCommit !== '' && reportedCommit !== verification.commit.commit) {
       effective = 'inconclusive'
       downgrade = 'wrong-commit'
     } else if (verification.commit?.pinned && reportedCommit === '') {
@@ -706,6 +769,8 @@ export const recordVerdict = (core, input, actor) => {
     {
       ...verification,
       evidence,
+      ...(Array.isArray(finalChecks?.results) ? { checks: finalChecks.results } : {}),
+      ...(finalCommit === undefined ? {} : { recheck: { at: iso(nowMs), ...(finalCommit.pinned ? { commit: finalCommit.commit, dirty: finalCommit.dirty === true } : {}) } }),
       reportedCommit: reportedCommit || null,
       workspaceClean,
       verdict: { kind: effective, requested: verdictKind, reason, at: iso(nowMs), ...(downgrade === undefined ? {} : { downgrade }), coverage: { covered: covered.map((c) => c.id), uncovered } },
@@ -801,8 +866,9 @@ export const ackObjective = (core, input, actor) => {
   const verification = core.state.verifications.get(objective.currentVerificationId)
   if (verification === undefined || verification.state !== 'approved') return fail('verification-required', 'no approved verification is pending acknowledgment')
   if (verification.criteriaVersion !== objective.criteriaVersion) return fail('ack-incomplete', 'the verification predates a criteria edit')
+  if (input?.decision !== 'ack' && input?.decision !== 'send-back') return fail('record-incomplete', 'decision must be "ack" or "send-back"')
   const nowMs = core.now()
-  const decision = input?.decision === 'send-back' ? 'send-back' : 'ack'
+  const decision = input.decision
   const note = clampText(input?.note, 1000)
   if (decision === 'send-back') {
     if (note === '') return fail('record-incomplete', 'send-back needs a note')
@@ -864,6 +930,33 @@ export const sweepObjective = (core, objective, measureTokens) => {
   if (current.state === 'awaiting-human' && nowMs - Date.parse(current.awaitingSince ?? current.updatedAt) > core.settings.limits.maxAckAgeMs) {
     return blockObjective(core, current, 'human-ack-timeout', 'no acknowledgment within maxAckAgeMs')
   }
+  if (current.state === 'verifying') {
+    const verification = core.state.verifications.get(current.currentVerificationId)
+    if (
+      verification !== undefined &&
+      verification.state === 'requested' &&
+      nowMs - Date.parse(verification.requestedAt ?? verification.updatedAt) > core.settings.limits.verificationTimeoutMs
+    ) {
+      const failed = bump(
+        {
+          ...verification,
+          state: 'inconclusive',
+          verdict: {
+            kind: 'inconclusive',
+            requested: verification.verdict?.requested ?? 'inconclusive',
+            reason: `verification did not finish within ${core.settings.limits.verificationTimeoutMs} ms`,
+            at: iso(nowMs),
+            downgrade: 'verification-timeout',
+          },
+        },
+        nowMs,
+      )
+      core.append('verification/verdict', engineActor, { verification: failed })
+      core.cancelChildren?.(current.id, 'verification-timeout')
+      applyVerdictToObjective(core, current, failed)
+      current = core.state.objectives.get(current.id)
+    }
+  }
   for (const item of itemsOf(core.state, current.id)) {
     if (item.state === 'dispatched' && nowMs - Date.parse(item.lastActivityAt ?? item.updatedAt) > core.settings.limits.stallTimeoutMs) {
       failItem(core, item, 'stall', `no evidence or heartbeat for ${core.settings.limits.stallTimeoutMs} ms`)
@@ -914,7 +1007,13 @@ export const pauseEngine = (core, actor, reason) => {
   core.append('engine/paused', actor ?? engineActor, { reason: clampText(reason, 500) || 'human' })
   const expired = expireAllWakes(core, 'engine-paused')
   const nowMs = core.now()
-  for (const objective of core.state.objectives.values()) {
+  for (const objective of [...core.state.objectives.values()]) {
+    if (objective.state === 'verifying') {
+      closeRequestedVerifications(core, objective.id, 'engine paused', 'engine-paused')
+      const next = bump({ ...objective, state: 'paused', previousState: 'verifying', armed: false, pausedReason: 'engine-paused', currentVerificationId: null }, nowMs)
+      core.append('objective/state-changed', engineActor, { objective: next, from: objective.state, code: 'engine-paused' })
+      continue
+    }
     if (objective.armed) {
       const next = bump({ ...objective, armed: false }, nowMs)
       core.append('objective/state-changed', engineActor, { objective: next, from: objective.state, code: 'disarmed' })

@@ -108,6 +108,10 @@ for environments without a host subprocess service; `checkerTimeoutMs` (default
 
 ## Trust and security notes
 
+- Checks are re-executed and the tree re-pinned at **verdict** time; a delivery
+  that changed or broke after the request cannot be approved. Approval of
+  executable criteria also requires the deterministic checker unless
+  `allowVerifierOnlyCompletion` is explicitly enabled.
 - The verification **gate runs before any check command**: authority, revision,
   readiness, budgets, commit pin, and a clean pinned workspace are validated
   first. An unauthorized or premature request executes nothing. Duplicate

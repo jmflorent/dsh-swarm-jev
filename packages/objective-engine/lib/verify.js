@@ -45,6 +45,18 @@ export const createVerifierWiring = ({ ctx, settings, log, dispatcher, authority
     return { exitCode: outcome?.exitCode, stdout: readCollected(handle, 'stdout').trim() }
   }
 
+  const pinAt = async (cwd) => {
+    if (typeof cwd !== 'string' || cwd === '') return { commit: null, pinned: false, reason: 'cwd-unavailable' }
+    try {
+      const head = await runGit(cwd, ['rev-parse', 'HEAD'])
+      if (head === undefined || head.exitCode !== 0 || !/^[0-9a-f]{40}$/i.test(head.stdout)) return { commit: null, pinned: false, cwd, reason: 'not-a-git-repository' }
+      const status = await runGit(cwd, ['status', '--porcelain'])
+      return { commit: head.stdout.toLowerCase(), pinned: true, cwd, dirty: status === undefined ? null : status.stdout !== '', pinnedAt: new Date().toISOString() }
+    } catch (error) {
+      return { commit: null, pinned: false, cwd, reason: `git-failed: ${String(error?.message ?? error)}` }
+    }
+  }
+
   /** Resolve the pinned commit for the owner's working directory. Never throws. */
   const pinCommit = async (parent) => {
     const service = subprocess()
@@ -57,19 +69,19 @@ export const createVerifierWiring = ({ ctx, settings, log, dispatcher, authority
     } catch {
       cwd = undefined
     }
-    if (typeof cwd !== 'string' || cwd === '') return { commit: null, pinned: false, reason: 'cwd-unavailable' }
-    try {
-      const head = await runGit(cwd, ['rev-parse', 'HEAD'])
-      if (head === undefined || head.exitCode !== 0 || !/^[0-9a-f]{40}$/i.test(head.stdout)) return { commit: null, pinned: false, cwd, reason: 'not-a-git-repository' }
-      const status = await runGit(cwd, ['status', '--porcelain'])
-      return { commit: head.stdout.toLowerCase(), pinned: true, cwd, dirty: status === undefined ? null : status.stdout !== '', pinnedAt: new Date().toISOString() }
-    } catch (error) {
-      return { commit: null, pinned: false, cwd, reason: `git-failed: ${String(error?.message ?? error)}` }
-    }
+    return pinAt(cwd)
   }
 
   /** Execute the mechanical criteria in the owner's workspace. */
   const runChecks = async ({ criteria, cwd }) => runMechanicalChecks({ ctx, criteria, cwd, settings, log })
+
+  /** Re-execute the mechanical criteria at verdict time and re-pin the tree. */
+  const recheck = async ({ verification, criteria }) => {
+    const cwd = verification.commit?.cwd
+    const checks = await runChecks({ criteria, cwd })
+    const commit = await pinAt(cwd)
+    return { checks, commit }
+  }
 
   /** Start the verifier child for a requested record. */
   const startVerifier = async ({ objective, verification }) => {
@@ -84,5 +96,5 @@ export const createVerifierWiring = ({ ctx, settings, log, dispatcher, authority
     return { ok: true, verifier: { kind: 'child', sessionId: started.childId, presetId: started.preset, parentSessionId: objective.owner.sessionId } }
   }
 
-  return { pinCommit, runChecks, startVerifier }
+  return { pinCommit, runChecks, recheck, startVerifier }
 }

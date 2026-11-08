@@ -53,10 +53,10 @@ all fixed and covered by regressions:
    dirty pinned workspace with `dirty-workspace` before executing checks, so
    executed evidence always corresponds to the pinned commit.
 
-The audit also noted that a request-level check run is not a verdict-time
-re-pin; the verifier is required to report the final commit and clean workspace,
-and approval downgrades to inconclusive on a mismatch, which the run exercised
-on an earlier dirty attempt.
+A request-level check run is now re-proved at verdict time: `objective_verdict`
+re-executes the mechanical criteria and re-pins the tree, so a delivery that
+changes after the request is rejected (a failing final check or
+`changed-since-request`) rather than approved on stale evidence.
 
 ## What this does not replace
 

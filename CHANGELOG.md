@@ -46,6 +46,20 @@ verification lessons of the external Ringer runner. Comparison and trust model:
   rejected request can no longer run checks. Duplicate `criterionIds` are
   deduplicated and an incomplete criteria set can never approve; verification
   refuses a dirty pinned workspace so executed evidence matches the commit.
+- The checker is re-proved at verdict time: `objective_verdict` re-executes the
+  mechanical criteria in the verification workspace and re-pins the tree; a
+  delivery that changed or broke after the request cannot be approved. Approval
+  of executable criteria also requires `checker.mode: "engine"` unless
+  `allowVerifierOnlyCompletion` is explicitly enabled.
+- Evidence matching is strict: a command entry must name the criterion command
+  and expected exit code, an artifact entry must name the criterion path (and
+  digest when declared); malformed `check` objects and invalid `sha256` values
+  are rejected at creation instead of silently degrading. External verifiers
+  now require an explicit preset that differs from the producer’s, and the
+  shipped verifier preset has no write/edit tools.
+- Liveness: pausing an objective or the engine closes a pending verification as
+  inconclusive (no zombie record occupying the single verifier slot), and the
+  sweep expires a verifier that exceeds `verificationTimeoutMs`.
 - Journal integrity: `core.append` validates an event against the fold
   **before** writing it, so a fold-rejected event can never advance
   `store.lastSeq` ahead of the folded `state.lastSeq`; snapshots whose folded
@@ -56,7 +70,7 @@ verification lessons of the external Ringer runner. Comparison and trust model:
   (unauthorized/not-ready/dirty requests execute nothing; duplicate ids are
   advisory only).
 
-- The package suite is now twenty-two sections (deterministic checker pass/fail,
+- The package suite is now twenty-three sections (deterministic checker pass/fail,
   artifact stat/hash, lint/baseline, plus the dispatch-depth and human-actor
   regressions).
 

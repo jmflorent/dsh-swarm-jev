@@ -268,6 +268,7 @@ export const createEngine = ({ config, settings: provided, dataDir, now = Date.n
         }
         return fail('mechanical-check-failed', `executed checks failed: ${failed.map((check) => check.criterionId).join(', ')}`, {
           checks: failed,
+          failureContext: describeCheckFailures(checks),
           commit: pin?.commit ?? null,
           objective: objectiveView(state, objective),
         })
@@ -312,8 +313,17 @@ export const createEngine = ({ config, settings: provided, dataDir, now = Date.n
       }
       return { ok: true, ...(objective === undefined ? {} : { objectiveId: objective.id }), findings, ...(checks === undefined ? {} : { checks: summarizeChecks(checks), executed: checks.mode === 'engine', mode: checks.mode }) }
     }),
-    verdict: wrap((input, actor) => {
-      const result = recordVerdict(core, input, actor)
+    verdict: wrapAsync(async (input, actor) => {
+      const verification = state.verifications.get(clampText(input?.verificationId, 80))
+      let final
+      if (verification !== undefined && verification.checker?.mode === 'engine' && typeof verifier?.recheck === 'function') {
+        const objective = state.objectives.get(verification.objectiveId)
+        if (objective !== undefined) {
+          const criteria = objective.criteria.filter((criterion) => verification.criterionIds.includes(criterion.id))
+          final = await verifier.recheck({ verification, criteria })
+        }
+      }
+      const result = recordVerdict(core, input, actor, final)
       if (result.ok) kick(state.objectives.get(result.objective.id)?.owner?.sessionId)
       return result
     }),

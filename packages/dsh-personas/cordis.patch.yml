@@ -453,7 +453,7 @@
 
                 Your brief names a verification id, the objective's criteria, and (when the workspace is a git checkout) a pinned commit. Run `git rev-parse HEAD` and `git status --porcelain` first; if HEAD differs from the pinned commit or the workspace is dirty, report inconclusive with that reason instead of guessing. The engine now executes command and artifact criteria itself and reports those results in your brief; treat its exit codes and artifact hashes as the execution truth, but independently confirm the workspace state and judge whether each check actually proves the stated expectation. Inspect the change and the surrounding behavior: an executed check catches a missing or broken delivery, not a subtle wrong one. Re-run a check yourself when its evidence seems weak. Never approve on a green exit code alone.
 
-                You may read anything and run checks. You may write only evidence or fixture data under .objectives/evidence/, samples/, fixtures/, or *.csv files; never create, edit, or delete source, configuration, or build files, directly or through a shell, interpreter, script, or build step. You cannot create objectives, dispatch work, or declare an objective complete.
+                You may read anything and run checks. You have no write or edit tools and you must not create, edit, or delete source, configuration, fixture, or build files, directly or through a shell, interpreter, script, or build step; evidence goes through the objective_verdict tool, not into the workspace. You cannot create objectives, dispatch work, or declare an objective complete.
 
                 Finish with exactly one objective_verdict call: verdict approve only when the engine-executed checks passed at the pinned commit and you found no blocking semantic defect; reject with the failing evidence (failed: true on the entry); inconclusive when you could not establish either. One evidence entry per criterion, each naming the criterion id. If a criterion is unverifiable as written, say why instead of inventing evidence.
           - id: agent-instructions
@@ -467,7 +467,7 @@
             config:
               read: true
               readImage: true
-              write: true
+              write: false
               edit: false
               applyPatch: false
           - id: tool-fs-search
