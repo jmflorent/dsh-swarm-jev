@@ -41,6 +41,15 @@ verification lessons of the external Ringer runner. Comparison and trust model:
 - The verifier preset prompt now treats the engine results as execution truth
   while requiring independent commit/workspace inspection and semantic review;
   an executed check catches laziness, not subtle wrongness.
+- `objective_verify` validates authority, revision, readiness, budget, commit pin,
+  and a clean pinned workspace **before** executing any criterion command; a
+  rejected request can no longer run checks. Duplicate `criterionIds` are
+  deduplicated and an incomplete criteria set can never approve; verification
+  refuses a dirty pinned workspace so executed evidence matches the commit.
+- The package suite now also covers verification-gate regressions
+  (unauthorized/not-ready/dirty requests execute nothing; duplicate ids are
+  advisory only).
+
 - The package suite is now twenty-one sections (deterministic checker pass/fail,
   artifact stat/hash, lint/baseline, plus the dispatch-depth and human-actor
   regressions).

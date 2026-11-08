@@ -253,6 +253,7 @@ dsh-swarm-jev/
 | [`docs/orchestrator.md`](docs/orchestrator.md) | Understand the swarm orchestrator and which design items are implemented |
 | [`docs/objective-engine.md`](docs/objective-engine.md) | Run the objective/progress loop: records, state machines, the driver, authority, the classifier |
 | [`docs/checker.md`](docs/checker.md) | Understand how delivery is checked: executed criteria, the verifier gate, lint/baseline, and the comparison with Ringer |
+| [`docs/acceptance/checker.md`](docs/acceptance/checker.md) | Read the in-harness evidence for the deterministic checker (0.3.0) |
 | [`docs/install.md`](docs/install.md) | Install, enable, reload, verify, uninstall, and roll back on another machine |
 | [`docs/configuration.md`](docs/configuration.md) | Change a config field without breaking the layer; understand precedence and credentials |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Fix an endpoint, auth, answer, mode, Settings-page, or version problem |

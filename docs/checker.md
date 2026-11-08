@@ -108,6 +108,13 @@ for environments without a host subprocess service; `checkerTimeoutMs` (default
 
 ## Trust and security notes
 
+- The verification **gate runs before any check command**: authority, revision,
+  readiness, budgets, commit pin, and a clean pinned workspace are validated
+  first. An unauthorized or premature request executes nothing. Duplicate
+  criterion ids are deduplicated, and approval requires complete criteria
+  coverage.
+
+
 - Commands come from objective criteria, which in the default configuration are
   authored in a **human-authority** turn (`objective_create`); an
   agent-proposed objective needs human approval. The checker does not execute
