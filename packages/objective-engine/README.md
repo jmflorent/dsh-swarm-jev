@@ -202,5 +202,4 @@ provenance and commit pinning, mechanical completion and send-back, budgets,
 restart reconstruction and replay determinism, wakeups and the pre-step fence,
 coalescing and backpressure, the kill switch, the advisory classifier with the
 outage policy and the replay paradox, the decision-rule table, fallback paths,
-and tool wiring. When the systemone package has `@deepseek-ai/dsh-tools`
-installed, every parameter schema is also validated with the real registry.
+and tool wiring against the registry contract (no external dependency needed).

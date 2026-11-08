@@ -10,7 +10,7 @@ bundles with a `cordis.patch.yml`, plain ES modules, and Markdown.
 | Part | Package / location | What it gives you | Status |
 |---|---|---|---|
 | **Role personas** | [`packages/dsh-personas`](packages/dsh-personas) (`@local/dsh-personas` 1.1.0) | Seven agent presets — orchestrator, architect, writer, reviewer, researcher, plus the objective manager and verifier session types — layered over the shipped DSH presets | Stable |
-| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.3) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** (with objectives when the engine is composed) | Stable |
+| **System One decision layer** | [`packages/dsh-systemone`](packages/dsh-systemone) (`@local/systemone` 0.2.4) | `systemone_ask` / `systemone_status` tools, a self-hosted decision model integration, `off`/`shadow`/`enforce`/`swarm` decision layer, persona routing, per-preset tool policy and model judging, the **Settings → Decision model** page, and a live **right-sidebar swarm panel** (with objectives when the engine is composed) | Stable |
 | **Objective/progress orchestrator** | [`packages/objective-engine`](packages/objective-engine) (`@local/objective-engine` 0.2.0) + [`docs/objective-engine.md`](docs/objective-engine.md) | The control plane: hash-chained objective/progress journal, admission and measured load, six budgets, event-driven wakeups with a pre-step fence, engine-started workers and verifier with commit pinning, a verifier-gated completion with human acknowledgment, a kill switch, and an advisory Mammoth classifier | **Phase 1 implemented** — Phase 2 hardening (worktrees, merge queue, cadence) remains design |
 
 > The objective engine implements Phase 1 of the design in
@@ -150,9 +150,9 @@ Full instructions, including CLI and manual profile wiring:
 | Bundle | Install path | Requires | Enables |
 |---|---|---|---|
 | `@local/dsh-personas` | `packages/dsh-personas` | DSH 0.2.2-rc.1 | Five presets in the New-session picker and Settings → Agent presets |
-| `@local/systemone` | `packages/dsh-systemone` | DSH 0.2.2-rc.1, a reachable System One endpoint; pnpm/registry access for its two dependencies; the Web client for the Settings page | `systemone_*` and `swarm_*` tools, the decision layer, per-preset policy/judge, Settings → Decision model |
+| `@local/systemone` | `packages/dsh-systemone` | DSH 0.2.2-rc.1, a reachable System One endpoint; no dependency resolution (schema library vendored); the Web client for the Settings page | `systemone_*` and `swarm_*` tools, the decision layer, per-preset policy/judge, Settings → Decision model |
 
-Both bundles are added through the DSH Web Plugins page (or the equivalent
+All three bundles are added through the DSH Web Plugins page (or the equivalent
 profile wiring). Keep `@local/dsh-personas` before `@local/systemone` in the
 profile's bundle list, as the documented order; the shipped
 [`examples/profile-patch.example.yml`](examples/profile-patch.example.yml) shows
@@ -168,7 +168,7 @@ a complete, credential-free profile patch.
 | DSH profile team packages | 0.2.2-rc.1 |
 | Bundled Node / pnpm shipped with DSH | Node 24.21.0 / pnpm 11.28.5 |
 | `@local/dsh-personas` | 1.1.0 — no runtime dependencies |
-| `@local/systemone` | 0.2.3 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; declares `@deepseek-ai/dsh-tools` 0.2.1-rc.3, `@deepseek-ai/schemastery` ~3.18.5; browser half at `lib/client.js` (`platform: web`) |
+| `@local/systemone` | 0.2.4 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; no runtime dependencies (vendored `schemastery` 3.18.5 + `cosmokit` 1.8.6, MIT); browser half at `lib/client.js` (`platform: web`) |
 | `@local/objective-engine` | 0.2.0 — `engines.dsh: >=0.2.2-rc.1 <0.3.0`, `engines.node: >=24`; no runtime dependencies; uses the host `agents`, `agentPresets`, `subagents`, `subprocess`, `workingDirectory`, `tokenMeter`, and `systemone` services with typed degradation |
 
 DSH's plugin API is young. Treat the versions above as the tested set: if you
@@ -299,9 +299,8 @@ node test/run.mjs
 ```
 
 It runs the nine-condition matrix from the design against a fake Cordis
-context (agents, presets, subagents, subprocess) and, when the systemone
-package has `@deepseek-ai/dsh-tools` installed next to it, validates every tool
-schema with the real registry library. The personas bundle is
+context (agents, presets, subagents, subprocess), and each package validates its
+tool definitions against the registry contract without external dependencies. The personas bundle is
 configuration-only and has no test suite.
 
 ---

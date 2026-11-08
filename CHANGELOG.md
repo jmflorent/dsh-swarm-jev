@@ -96,6 +96,20 @@ nine-condition test suite pins the completion gate.
   `degraded`) instead of a boolean.
 - The example patch no longer sets the retired `swarm.presets` field.
 
+### Fixed
+
+- `packages/dsh-systemone` 0.2.4 — the package is now **self-contained** so a
+  linked/offline install works with no registry resolution:
+  - vendored the MIT `schemastery` 3.18.5 and `cosmokit` 1.8.6 sources under
+    `packages/dsh-systemone/vendor/` (one relative-import rewrite; license texts
+    included), and imported the schema library from there;
+  - replaced the `@deepseek-ai/dsh-tools` `defineTool` import with
+    `lib/define-tool.js`, which produces the same registry-ready definition
+    shape (JSON-Schema parameters, required/scalar validation, JSON output) and
+    drops that package's large dependency closure;
+  - removed both runtime dependencies from `package.json` and updated the
+    install guide, compatibility table, tests guide, and vendor provenance.
+
 ### Removed
 
 - `packages/objective-engine/lib/journal.js` (replaced by `lib/store.js`).

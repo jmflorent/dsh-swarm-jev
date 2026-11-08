@@ -24,7 +24,7 @@ shipped with DSH.
 | A directory that will keep the bundles | Do not install from a temporary folder; profile dependencies are `link:` references to the path you choose |
 | A reachable System One decision endpoint | Only for `dsh-systemone`; personas work without it |
 | Optional: the team bundle | `@deepseek-ai/dsh-experimental-agent-team-profile` for the Phase 0 objective workflow and the team tools in the swarm allow-list |
-| Network access for installs | pnpm must resolve the systemone bundle's two dependencies (`@deepseek-ai/dsh-tools@0.2.1-rc.3`, `@deepseek-ai/schemastery@~3.18.5`) from a registry or a local store; the personas bundle has no dependencies |
+| Network access for installs | Not required: all three bundles are self-contained (the systemone schema library is vendored, the other two have no dependencies) |
 | A Web client, for the Settings page | The **Settings → Decision model** page is a browser plugin; headless deployments can configure the same fields in the profile patch |
 
 > **Upgrading DSH later:** reinstall/re-link the bundles after a DSH upgrade and
@@ -159,13 +159,14 @@ The profile `package.json` should contain:
   },
   "dependencies": {
     "@local/dsh-personas": "link:/absolute/path/to/packages/dsh-personas",
-    "@local/systemone": "link:/absolute/path/to/packages/dsh-systemone"
+    "@local/systemone": "link:/absolute/path/to/packages/dsh-systemone",
+    "@local/objective-engine": "link:/absolute/path/to/packages/objective-engine"
   }
 }
 ```
 
-Keep whatever shipped bundles the profile already has; add the two local ones at
-the end, in this order.
+Keep whatever shipped bundles the profile already has; add the three local
+ones at the end, in this order.
 
 ---
 
@@ -177,8 +178,8 @@ into a profile. Work with DSH **stopped**.
 1. **Place the bundles** at a stable path, e.g.
    `~/Development/dsh-swarm-jev/packages/dsh-personas` and `.../dsh-systemone`.
 
-2. **Edit `~/.dsh/profiles/<name>/package.json`**: add the two dependencies and
-   append the bundle names to `dsh.profile.bundles` (see the JSON above).
+2. **Edit `~/.dsh/profiles/<name>/package.json`**: add the three dependencies
+   and append the bundle names to `dsh.profile.bundles` (see the JSON above).
 
 3. **Install the linked dependencies**:
 
@@ -266,11 +267,11 @@ missing, check `layer.mode` and whether the bundle loaded (Troubleshooting).
   each used with typed degradation when absent. It needs no Web client; the
   Objectives block in the Swarm panel appears only when the systemone bundle is
   composed.
-- **The systemone bundle** imports two packages at runtime:
-  `@deepseek-ai/dsh-tools` (tool definitions) and `@deepseek-ai/schemastery`
-  (Config schema). Installing it through the plugin manager or
-  `dsh plugin ... install` makes pnpm resolve them. Without registry or store
-  access the install fails at resolution time, before DSH loads anything.
+- **The systemone bundle is self-contained.** The only schema library it needs
+  (`schemastery`, plus its `cosmokit` utility dependency — both MIT) is vendored
+  under `packages/dsh-systemone/vendor/`, and `lib/define-tool.js` replaces the
+  `@deepseek-ai/dsh-tools` helper with the same registry-ready definition shape.
+  A linked or offline install therefore needs no registry or store access.
 - **The host half and the browser half are one package.** The host registers the
   tools, decision layer, and swarm tools; `lib/client.js` is the
   **Settings → Decision model** page. A headless composition loads the host half
